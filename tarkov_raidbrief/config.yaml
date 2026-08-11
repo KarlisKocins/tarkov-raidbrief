@@ -1,7 +1,7 @@
 ---
 name: Tarkov Raid Brief
 slug: tarkov_raidbrief
-version: "1.3.0"
+version: "1.4.0"
 description: >-
   Per-map Escape from Tarkov raid brief: what to carry in, what to loot,
   and what to do, driven by your live TarkovTracker progress.

@@ -40,6 +40,28 @@ add-on fetches items/maps/traders alongside tasks, joins the ids, and resolves
 text via the sibling `<path>_en` files, using the same `lang[value] ?? value`
 rule the tarkov.dev site uses.
 
+### The data overlay — why raw tarkov.dev is not enough
+
+tarkov.dev's task data is wrong in ways that decide availability, and
+TarkovTracker does not consume it raw: it pipes every response through
+[`tarkov-data-overlay`](https://github.com/tarkovtracker-org/tarkov-data-overlay),
+a community-maintained patch file. This add-on does the same, because the gap
+is not marginal — json.tarkov.dev ships **17** trader loyalty requirements
+across all 510 tasks, and the overlay adds **247** more. Without it, A Shooter
+Born in Heaven looks like it needs nothing when it actually needs Mechanic LL4.
+
+The overlay also retires the 32 quests BSG has removed from the game (Rite of
+Passage, Farming - Part 2, Signal Parts 3 and 4, …) and corrects task names and
+XP values. It is fetched hourly on its own clock, so a correction lands without
+waiting out the 24-hour task cache, and is cached to `/data/overlay.json`. If
+it cannot be fetched at all the add-on says so in a banner and falls back to
+raw tarkov.dev data, which over-reports.
+
+Two gates exist in neither source and are hardcoded, exactly as TarkovTracker
+hardcodes them: traders that do not exist until a quest is done (BTR Driver
+needs A Helping Hand, Lightkeeper needs Getting Acquainted), and A Helping
+Hand's own level 20 / Saving the Mole requirement.
+
 ---
 
 ## Install
@@ -81,8 +103,13 @@ maxed character, with a banner saying so.
 
 The progress API does **not** expose trader loyalty levels, so set them yourself
 under `trader_levels` in the add-on Configuration tab. They're used to hide tasks
-you can't unlock yet. Defaults are all `1`; wrong values only mean tasks appear
-slightly early or late.
+you can't unlock yet.
+
+**Set these to your real levels.** Since 1.4.0 the overlay supplies a loyalty
+requirement for roughly half of all tasks, so these values genuinely change what
+you see — leaving everything at the default `1` hides every task gated behind
+LL2–4, and the add-on shows a banner when it notices. A trader you can't
+configure (the BTR Driver has no loyalty levels) never hides anything.
 
 ---
 
@@ -298,6 +325,7 @@ ordinary code push can't silently overwrite a released tag.
         ├── tarkovjson.py # JSON API client (primary): id joins + translations
         ├── tarkovdev.py  # GraphQL client (fallback), composable query, disk cache
         ├── tracker.py    # TarkovTracker client, ETag/304, rate limiting
+        ├── overlay.py    # tarkov-data-overlay: the corrections tarkov.dev lacks
         ├── brief.py      # availability + carry/loot/do classification
         ├── models.py     # dataclasses + settings
         ├── static/       # app.css, app.js  (no build step, no framework)

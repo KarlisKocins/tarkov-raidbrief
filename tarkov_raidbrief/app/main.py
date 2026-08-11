@@ -155,6 +155,7 @@ class State:
             self.tracker.faction if has_token else "USEC",
             settings.trader_levels,
             kappa_only=kappa,
+            game_mode=settings.game_mode,
         )
 
         # Hidden maps are dropped before scoring, so an event map you cannot
@@ -191,6 +192,28 @@ class State:
                 f"{age}. Everything still works; it just will not pick up a new patch "
                 f"until the API is back.",
             ))
+        # Without the overlay, tarkov.dev ships almost no trader loyalty gates,
+        # so the brief silently over-reports. Worth a banner rather than a log line.
+        overlay = self.active_source.overlay
+        if overlay.status == "missing":
+            warnings.append(Warning_(
+                "degraded",
+                "The tarkov-data-overlay could not be fetched, so tasks are being "
+                "judged on raw tarkov.dev data. Trader loyalty requirements and "
+                "retired tasks are missing from that data, so this list will show "
+                "some tasks you cannot actually take."
+                + (f" ({overlay.error})" if overlay.error else ""),
+            ))
+
+        # Loyalty gates only bite if the levels are real, and they default to 1.
+        if has_token and all(v <= 1 for v in settings.trader_levels.values()):
+            warnings.append(Warning_(
+                "degraded",
+                "Every trader is configured at loyalty level 1. Tasks gated behind "
+                "LL2-4 are being hidden - set your real levels under the add-on "
+                "Configuration tab to see them.",
+            ))
+
         if self.active_source.dropped_blocks:
             dropped = ", ".join(self.active_source.dropped_blocks)
             detail = (" The KEYS section may be incomplete."

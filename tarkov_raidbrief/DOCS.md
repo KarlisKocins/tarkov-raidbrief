@@ -11,7 +11,9 @@ TarkovTracker progress. Open it from the sidebar while you're packing.
 2. Paste it into `tarkovtracker_token` below and **Start** the add-on.
 3. Set your trader loyalty levels under `trader_levels` — the progress API does
    not expose them, so they have to be entered by hand. They're used to hide
-   tasks you can't unlock yet.
+   tasks you can't unlock yet, and roughly half of all tasks carry a loyalty
+   requirement, so leaving them all at `1` hides a lot. The add-on shows a
+   banner if it notices they're all still at the default.
 
 Without a token the add-on still runs, showing every task as if for a maxed
 character, with a banner saying so.
@@ -47,6 +49,14 @@ character, with a banner saying so.
   unreachable you get the cached copy plus a staleness banner.
 - Objectives that aren't raid activities (trader loyalty, skills, player level)
   are hidden, unless they need a key.
+- Availability matches TarkovTracker, which means tarkov.dev's raw data is
+  corrected by the same community `tarkov-data-overlay` the tracker uses —
+  most trader loyalty gates live there rather than in the API, along with the
+  32 quests BSG has retired. It refreshes hourly.
+- Traders you haven't met hide their whole task list: the BTR Driver until
+  A Helping Hand is done, the Lightkeeper until Getting Acquainted is.
+- Prestige-only tasks never show, since the progress API reports no prestige
+  level.
 
 ## Troubleshooting
 
@@ -57,6 +67,8 @@ character, with a banner saying so.
 | *tarkov.dev could not be reached* | Nothing to do; cached data is being served. It'll recover on its own. |
 | *tarkov.dev rejected part of the query* | The schema changed. The add-on dropped the named block and kept going; some detail (often KEYS) is missing until it's updated. |
 | *Could not reach tarkov.dev on either the JSON or GraphQL API* | Both sources failed and there's no cache yet. Check the add-on has internet access, then hit Refresh. |
+| *The tarkov-data-overlay could not be fetched* | GitHub was unreachable. The list will show some tasks you can't take (loyalty gates live in the overlay, not the API) until it recovers. |
+| *Every trader is configured at loyalty level 1* | Set your real levels under `trader_levels`; until you do, everything gated behind LL2–4 is hidden. |
 
 Task data comes from `json.tarkov.dev`; the GraphQL API has been down since
 2026-07-21 and is used only as a fallback. See the repository README for detail.

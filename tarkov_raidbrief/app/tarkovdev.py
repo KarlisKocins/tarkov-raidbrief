@@ -29,6 +29,8 @@ from pathlib import Path
 
 import httpx
 
+from .overlay import Overlay
+
 log = logging.getLogger("raidbrief.tarkovdev")
 
 ENDPOINT = "https://api.tarkov.dev/graphql"
@@ -40,10 +42,13 @@ _KEYED = ("Basic", "Extract", "Item", "Mark", "QuestItem", "Shoot", "UseItem")
 
 # Optional blocks, listed in the order they get sacrificed. Least valuable first;
 # requiredKeys is last because the KEYS panel is the whole point of the carry list.
-# failConditions goes first: losing it only means a dead quest branch may linger
-# in the list until the tracker records it as failed.
-DEGRADE_ORDER = ("failConditions", "questItemLocations", "shootDetail", "zones",
-                 "requiredKeys")
+# failConditions goes early: losing it only means a dead quest branch may linger
+# in the list until the tracker records it as failed. `prestige` goes first
+# because it is the newest field of the lot and so the likeliest to be missing
+# from an older schema - and a scalar in the core selection has no other way to
+# be dropped if the server rejects it.
+DEGRADE_ORDER = ("prestige", "failConditions", "questItemLocations", "shootDetail",
+                 "zones", "requiredKeys")
 ALL_BLOCKS = frozenset(DEGRADE_ORDER)
 
 
@@ -84,6 +89,10 @@ def build_query(enabled: frozenset[str] = ALL_BLOCKS, game_mode: str | None = No
         else ""
     )
 
+    # `requiredPrestige` is a Prestige object here, where the JSON API sends a
+    # bare id string. Both are only ever tested for truthiness downstream.
+    prestige = "requiredPrestige { id }" if "prestige" in enabled else ""
+
     arg = f"(gameMode: {game_mode})" if game_mode else ""
 
     # TaskObjectiveBasic has nothing beyond the interface fields except the two
@@ -108,6 +117,7 @@ def build_query(enabled: frozenset[str] = ALL_BLOCKS, game_mode: str | None = No
     lightkeeperRequired
     factionName
     wikiLink
+    {prestige}
     trader {{ name normalizedName }}
     map {{ name normalizedName }}
     taskRequirements {{ task {{ id name }} status }}
@@ -214,6 +224,10 @@ class TarkovDev:
         # the UI can say so even while the cache is still inside its TTL.
         self.serving_stale: str | None = None
         self._introspected = False
+        # Same corrections as the JSON path - the overlay is keyed on task id,
+        # so it applies to whichever source produced them. GraphQL already
+        # resolves traders and maps, so no index needs passing here.
+        self.overlay = Overlay(cache_path.with_name("overlay.json"), game_mode)
 
     # -- transport ---------------------------------------------------------
 
@@ -300,10 +314,12 @@ class TarkovDev:
         unreachable, so a patch-day outage degrades to yesterday's data with a
         banner rather than an error page.
         """
+        await self.overlay.fetch(force=force)
+
         cached = self._read_cache()
         if not force and cached and time.time() - cached["fetched"] < CACHE_TTL:
             self.dropped_blocks = cached.get("dropped", [])
-            return cached["tasks"], cached["fetched"], self.dropped_blocks
+            return self.overlay.apply(cached["tasks"]), cached["fetched"], self.dropped_blocks
 
         self.serving_stale = None
 
@@ -317,14 +333,14 @@ class TarkovDev:
                             exc, time.strftime("%Y-%m-%d %H:%M", time.localtime(cached["fetched"])))
                 self.dropped_blocks = cached.get("dropped", [])
                 self.serving_stale = str(exc)[:200]
-                return cached["tasks"], cached["fetched"], self.dropped_blocks
+                return self.overlay.apply(cached["tasks"]), cached["fetched"], self.dropped_blocks
             raise TarkovDevError(f"tarkov.dev unreachable and no cache available: {exc}") from exc
 
         fetched = time.time()
         self.dropped_blocks = dropped
         self._write_cache(tasks, fetched, dropped)
         log.info("Fetched %d tasks from tarkov.dev (mode=%s)", len(tasks), self.game_mode)
-        return tasks, fetched, dropped
+        return self.overlay.apply(tasks), fetched, dropped
 
     # -- cache -------------------------------------------------------------
 

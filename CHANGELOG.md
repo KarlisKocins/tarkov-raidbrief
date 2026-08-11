@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.4.0
+
+Fixes the add-on listing tasks you cannot actually take. On a level 15
+account it was showing 39 tasks, 15 of them locked in game — A Shooter Born
+in Heaven (needs Mechanic LL4), both BTR Driver quests (needs a trader you
+have not met), and Shipping Delay Parts 1 and 2.
+
+The root cause is that tarkov.dev's raw data is missing most of the
+information availability depends on, and TarkovTracker does not use it raw.
+
+- **The data overlay is now applied.** TarkovTracker pipes every tarkov.dev
+  response through `tarkovtracker-org/tarkov-data-overlay`, a community patch
+  file. Working without it means working from data the reference
+  implementation considers broken: json.tarkov.dev ships 17 trader loyalty
+  requirements across all 510 tasks, the overlay adds 247 more. It also
+  retires 32 tasks BSG removed from the game (Rite of Passage, Farming -
+  Part 2, Signal Parts 3 and 4, …) and corrects names and XP values. The
+  overlay refreshes hourly, independently of the daily task refresh.
+- **Traders you have not unlocked.** The BTR Driver does not exist until A
+  Helping Hand is done, and the Lightkeeper until Getting Acquainted is.
+  There is no field for this in tarkov.dev's data — TarkovTracker hardcodes
+  it, and now so does this. Without it, BTR quests showed from level 1.
+- **"Active" prerequisites are re-checked properly.** 1.3.0 approximated
+  TarkovTracker's `isUnlockable` by copying the required quest's
+  prerequisites, which silently discarded its level, faction, loyalty and
+  trader-unlock gates. A prerequisite with no prerequisites of its own
+  therefore unlocked its children unconditionally. This is now the same
+  recursive, memoised evaluation TarkovTracker performs.
+- **A Helping Hand** is level 20 and needs Saving the Mole. Neither
+  tarkov.dev nor the overlay records this, and it matters more than most
+  because the whole BTR chain hangs off it, so it is corrected locally —
+  only where the overlay is silent, so the fix retires itself.
+- **Prestige-only tasks are hidden.** The progress API reports no prestige
+  level, so the prestige variants of New Beginning can never be reachable.
+- A prerequisite that no longer exists no longer locks its successor
+  forever. Painkiller, Broadcast - Part 1 and Bad Habit all hang off quests
+  BSG retired, and were unreachable as a result.
+- Two new banners: one when the overlay cannot be fetched (the brief will
+  over-report without it), and one when every trader is still configured at
+  loyalty level 1, which hides everything gated behind LL2-4. **Set your
+  real loyalty levels under Configuration** — they now change what you see.
+
+The task cache is rebuilt once on update, so the corrections apply
+immediately rather than on the next daily refresh.
+
 ## 1.3.0
 
 Task availability now matches TarkovTracker. Previously the add-on could list

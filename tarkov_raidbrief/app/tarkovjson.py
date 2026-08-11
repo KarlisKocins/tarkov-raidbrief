@@ -37,6 +37,8 @@ from pathlib import Path
 
 import httpx
 
+from .overlay import Overlay
+
 log = logging.getLogger("raidbrief.tarkovjson")
 
 BASE = "https://json.tarkov.dev"
@@ -68,6 +70,9 @@ class TarkovJson:
         self.language = language
         self.dropped_blocks: list[str] = []
         self.serving_stale: str | None = None
+        # Raw tarkov.dev data is missing nearly every trader loyalty gate; the
+        # overlay is what makes availability match TarkovTracker. See overlay.py.
+        self.overlay = Overlay(cache_path.with_name("overlay.json"), self.game_mode)
 
     # -- transport ---------------------------------------------------------
 
@@ -156,6 +161,15 @@ class TarkovJson:
                  len(items), len(quest_items), len(maps), len(traders))
         return {"tr": tr, "items": items, "questItems": quest_items,
                 "maps": maps, "traders": traders}
+
+    @staticmethod
+    def _overlay_indexes(idx: dict) -> dict:
+        """The id-keyed lookups the overlay needs to resolve its own refs."""
+        return {
+            "traders": {tid: t.get("normalizedName") or ""
+                        for tid, t in (idx.get("traders") or {}).items()},
+            "maps": idx.get("maps") or {},
+        }
 
     # -- transformation to the GraphQL shape -------------------------------
 
@@ -280,6 +294,10 @@ class TarkovJson:
                 "minPlayerLevel": task.get("minPlayerLevel"),
                 "kappaRequired": task.get("kappaRequired"),
                 "lightkeeperRequired": task.get("lightkeeperRequired"),
+                # Set on the prestige-only variants of New Beginning et al.
+                # Nothing in the progress API reports a prestige level, so
+                # brief.py treats any value here as unreachable.
+                "requiredPrestige": task.get("requiredPrestige"),
                 "factionName": task.get("factionName"),
                 "wikiLink": task.get("wikiLink"),
                 "trader": traders.get(task.get("trader"), {"name": "?", "normalizedName": ""}),
@@ -317,14 +335,20 @@ class TarkovJson:
     # -- public ------------------------------------------------------------
 
     async def get_tasks(self, force: bool = False) -> tuple[list[dict], float, list[str]]:
+        # The overlay is fetched on its own hourly clock so a correction lands
+        # without waiting out the 24h task TTL; the cache below therefore holds
+        # uncorrected tasks and the merge happens on every call.
+        await self.overlay.fetch(force=force)
+
         cached = self._read_cache()
         if not force and cached and time.time() - cached["fetched"] < CACHE_TTL:
-            return cached["tasks"], cached["fetched"], []
+            return self._corrected(cached), cached["fetched"], []
 
         self.serving_stale = None
         try:
             data, lang = await self._fetch_all()
-            tasks = self._transform(data, self._build_indexes(data, lang))
+            idx = self._build_indexes(data, lang)
+            tasks = self._transform(data, idx)
             if not tasks:
                 raise TarkovJsonError("transformed to zero tasks")
         except (httpx.HTTPError, TarkovJsonError, ValueError, KeyError, TypeError) as exc:
@@ -332,14 +356,18 @@ class TarkovJson:
                 log.warning("json.tarkov.dev unreachable (%s); serving cache from %s", exc,
                             time.strftime("%Y-%m-%d %H:%M", time.localtime(cached["fetched"])))
                 self.serving_stale = str(exc)[:200]
-                return cached["tasks"], cached["fetched"], []
+                return self._corrected(cached), cached["fetched"], []
             raise TarkovJsonError(f"json.tarkov.dev unavailable and no cache: {exc}") from exc
 
         fetched = time.time()
-        self._write_cache(tasks, fetched)
+        blob = {"tasks": tasks, "fetched": fetched, **self._overlay_indexes(idx)}
+        self._write_cache(blob)
         log.info("Loaded %d tasks from json.tarkov.dev (mode=%s, lang=%s)",
                  len(tasks), self.game_mode, self.language)
-        return tasks, fetched, []
+        return self._corrected(blob), fetched, []
+
+    def _corrected(self, blob: dict) -> list[dict]:
+        return self.overlay.apply(blob["tasks"], blob.get("traders"), blob.get("maps"))
 
     # -- cache -------------------------------------------------------------
 
@@ -350,14 +378,15 @@ class TarkovJson:
             return None
         if not isinstance(blob.get("tasks"), list) or not blob["tasks"]:
             return None
-        if blob.get("game_mode") != self.game_mode or blob.get("source") != "json":
+        # "json-v2" caches carry the trader/map id indexes the overlay needs;
+        # the bump discards pre-overlay caches instead of half-correcting them.
+        if blob.get("game_mode") != self.game_mode or blob.get("source") != "json-v2":
             return None
         blob.setdefault("fetched", 0.0)
         return blob
 
-    def _write_cache(self, tasks: list[dict], fetched: float) -> None:
-        payload = {"fetched": fetched, "game_mode": self.game_mode,
-                   "source": "json", "tasks": tasks}
+    def _write_cache(self, blob: dict) -> None:
+        payload = {"game_mode": self.game_mode, "source": "json-v2", **blob}
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_path.with_suffix(".tmp")

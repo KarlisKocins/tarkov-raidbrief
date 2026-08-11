@@ -105,23 +105,31 @@ def _symbol(compare_method: str | None) -> str:
 # availability
 # --------------------------------------------------------------------------
 #
-# Mirrors TarkovTracker (stores/progress.js `unlockedTasks` +
-# composables/tarkovdata.js), which gates on a prerequisite *graph* rather
-# than reading taskRequirements directly:
+# Mirrors TarkovTracker's `stores/taskAvailability.ts` - specifically
+# `createTeamEvaluator`, which is a *recursive, memoised* evaluation, not a
+# precomputed edge graph. That distinction is load-bearing:
 #
-# * A requirement whose status list does NOT include "active" is an edge
-#   required-task -> task: that parent must be finished first.
+# * A requirement whose status list does NOT include "active" is satisfied by
+#   the required task being complete (or failed - see below).
 # * A requirement whose status includes "active" means "hand this in instead"
-#   (the Chemical Part 4 / Big Customer / Out of Curiosity branch): the task
-#   unlocks the moment the required task does, so it inherits that task's own
-#   parents instead of depending on it.
-# * A requirement of exactly ["failed"] additionally demands the prerequisite
-#   was failed, not completed.
+#   (the Chemical Part 4 / Big Customer / Out of Curiosity branch). It is met
+#   when the required task is complete OR would itself be *unlockable*, which
+#   TarkovTracker answers by re-entering the same evaluation with completed
+#   tasks allowed (`isUnlockable`).
+#
+#   An earlier version of this module approximated that by copying the
+#   required task's parent set. It is not equivalent: it silently discards the
+#   required task's level, faction, trader-loyalty and trader-unlock gates. A
+#   prerequisite with no parents of its own therefore unlocked its children
+#   unconditionally, which is how Shipping Delay Parts 1 and 2 appeared for a
+#   level 15 account that had never met the BTR Driver.
+#
+# * A requirement of exactly ["failed"] demands the prerequisite was failed.
 #
 # TarkovTracker's `setTaskFailed` writes `complete: true, failed: true`, so a
-# failed parent satisfies an edge there - branch children stay reachable
-# whichever way the branch went. `statuses()` maps those records to "failed",
-# hence parents accept "complete" or "failed" below.
+# failed parent satisfies a "complete" edge there - branch children stay
+# reachable whichever way the branch went. `statuses()` maps those records to
+# "failed", hence "complete" requirements accept "failed" below.
 #
 # Mutually exclusive branches are not part of TarkovTracker's unlock check:
 # the site marks the alternatives failed at completion time, in the write
@@ -129,32 +137,32 @@ def _symbol(compare_method: str | None) -> str:
 # ("fails when task X is complete"): once any alternative is complete, the
 # task is treated as failed even if the tracker never recorded it.
 
-def unlock_graph(tasks: list[dict]) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Per task id: parent ids that must be finished, and alternative ids
-    whose completion kills the task."""
-    ids = {t["id"] for t in tasks if t.get("id")}
-    parents: dict[str, set[str]] = {tid: set() for tid in ids}
-    inherits: list[tuple[str, str]] = []
+# Traders who do not exist until a specific task is done. There is no field
+# for this in tarkov.dev's data - only Jaeger and Ref have a `traderUnlock`
+# reward - so TarkovTracker hardcodes it (`utils/constants.ts`,
+# TRADER_UNLOCK_TASKS) and enforces it in `meetsTraderUnlockRequirement`.
+# Without it every BTR Driver task shows from level 1 on a fresh account.
+TRADER_UNLOCK_TASKS: dict[str, str | dict[str, str]] = {
+    "lightkeeper": "625d700cc48e6c62a440fab5",   # Getting Acquainted
+    "btr-driver": "6752f6d83038f7df520c83e8",    # A Helping Hand
+    "ref": {                                     # Easy Money - Part 1
+        "regular": "66058cb22cee99303f1ba067",
+        "pve": "6834145ebc1f443d7603c8a7",
+    },
+}
 
-    for task in tasks:
-        tid = task.get("id")
-        if not tid:
-            continue
-        for req in task.get("taskRequirements") or []:
-            rid = (req.get("task") or {}).get("id")
-            if not rid or rid not in ids:
-                continue
-            wanted = {str(s).lower() for s in (req.get("status") or [])}
-            if "active" in wanted:
-                inherits.append((tid, rid))
-            else:
-                parents[tid].add(rid)
+# A "complete" requirement is met by either, per setTaskFailed above.
+_DONE = ("complete", "failed")
 
-    # Second pass, like TarkovTracker: inherit from the base graph, so the
-    # required task's own "active" inheritance never chains through.
-    for tid, rid in inherits:
-        parents[tid].update(parents.get(rid) or ())
+# Statuses that take a task out of the running for the player's own list.
+_CLOSED = ("complete", "failed", "invalid")
 
+_ACTIVE_WORDS = {"active", "accept", "accepted"}
+_COMPLETE_WORDS = {"complete", "completed"}
+
+
+def alternative_tasks(tasks: list[dict]) -> dict[str, set[str]]:
+    """Per task id, the ids whose completion fails it (mutually exclusive branches)."""
     alternatives: dict[str, set[str]] = defaultdict(set)
     for task in tasks:
         tid = task.get("id")
@@ -166,48 +174,146 @@ def unlock_graph(tasks: list[dict]) -> tuple[dict[str, set[str]], dict[str, set[
             other = (cond.get("task") or {}).get("id")
             if other and "complete" in {str(s).lower() for s in (cond.get("status") or [])}:
                 alternatives[tid].add(other)
+    return alternatives
 
-    return parents, alternatives
 
+class Availability:
+    """Answers "can this account do this task now?", memoised across a task set.
 
-def is_available(task: dict, statuses: dict[str, str], level: int,
+    Construct once per brief and call it per task; the two memo tables mean the
+    recursion an "active" requirement triggers is paid at most once per task.
+    """
+
+    def __init__(self, tasks: list[dict], statuses: dict[str, str], level: int,
                  faction: str, trader_levels: dict[str, int],
-                 parents: dict[str, set[str]],
-                 alternatives: dict[str, set[str]]) -> bool:
-    tid = task.get("id")
-    if statuses.get(tid) in ("complete", "failed", "invalid"):
-        return False
+                 game_mode: str = "regular") -> None:
+        self.by_id = {t["id"]: t for t in tasks if t.get("id")}
+        self.statuses = statuses
+        self.level = level
+        self.faction = faction
+        self.trader_levels = trader_levels
+        self.game_mode = game_mode
+        self.alternatives = alternative_tasks(tasks)
 
-    if (task.get("minPlayerLevel") or 0) > level:
-        return False
+        self._available: dict[str, bool] = {}
+        self._unlockable: dict[str, bool] = {}
+        # Shared visit sets, exactly as TarkovTracker does it: re-entering a
+        # task mid-evaluation means a requirement cycle, which answers False
+        # rather than recursing forever.
+        self._visiting_available: set[str] = set()
+        self._visiting_unlockable: set[str] = set()
 
-    task_faction = task.get("factionName")
-    if task_faction and task_faction not in ("Any", faction):
-        return False
+    def __call__(self, task: dict | str) -> bool:
+        tid = task.get("id") if isinstance(task, dict) else task
+        return self._compute(tid, False, self._available, self._visiting_available)
 
-    for pid in parents.get(tid) or ():
-        if statuses.get(pid) not in ("complete", "failed"):
-            return False
+    # -- individual gates --------------------------------------------------
 
-    for req in task.get("taskRequirements") or []:
-        wanted = {str(s).lower() for s in (req.get("status") or [])}
-        if wanted == {"failed"}:
-            if statuses.get((req.get("task") or {}).get("id")) != "failed":
+    def _meets_trader_levels(self, task: dict) -> bool:
+        """Loyalty gates. Almost all of these come from the data overlay.
+
+        The overlay omits `requirementType` (its entries are all loyalty
+        levels, values 1-4), while the raw API sets it to "level" or
+        "reputation". Reputation is skipped: TarkovTracker reads it from the
+        player's trader state, which the progress API does not expose, so
+        enforcing it would hide tasks on a value we cannot know.
+
+        A trader missing from the config defaults to 4 rather than 1. The
+        add-on only offers the ten loyalty-bearing traders, and refusing to
+        show a task because of an unconfigurable trader would be a bug the
+        user cannot fix.
+        """
+        for req in task.get("traderRequirements") or []:
+            if (req.get("requirementType") or "level").lower() != "level":
+                continue
+            trader = (req.get("trader") or {}).get("normalizedName") or ""
+            needed = req.get("value") or req.get("level") or 0
+            if self.trader_levels.get(trader, 4) < needed:
                 return False
+        return True
 
-    for alt in alternatives.get(tid) or ():
-        if statuses.get(alt) == "complete":
+    def _trader_unlocked(self, task: dict) -> bool:
+        entry = TRADER_UNLOCK_TASKS.get((task.get("trader") or {}).get("normalizedName") or "")
+        if isinstance(entry, dict):
+            entry = entry.get(self.game_mode)
+        # An unlock task absent from this dataset cannot be judged, and a task
+        # never gates itself - both are TarkovTracker's own guards.
+        if not entry or entry == task.get("id") or entry not in self.by_id:
+            return True
+        return self.statuses.get(entry) in _DONE
+
+    def _requirement_met(self, req: dict) -> bool:
+        rid = (req.get("task") or {}).get("id")
+        # A requirement pointing at a task that is not in the dataset counts as
+        # met. Most of these are quests BSG retired and the overlay disabled -
+        # Farming Part 2, Sanitary Standards Part 2, Signal Parts 3 and 4 and
+        # 28 others - whose successors are now reachable directly. Requiring a
+        # task that cannot be completed because it no longer exists would lock
+        # Painkiller, Broadcast - Part 1 and Bad Habit permanently.
+        #
+        # This is a deliberate deviation: TarkovTracker's hasRequiredTaskStatus
+        # only guards a missing `task.id`, not a task missing from the set, so
+        # it answers False here.
+        if not rid or rid not in self.by_id:
+            return True
+
+        wanted = {str(s).lower() for s in (req.get("status") or [])}
+        status = self.statuses.get(rid)
+
+        # No status list at all means "complete", per requiresCompletedStatus.
+        if (not wanted or wanted & _COMPLETE_WORDS) and status in _DONE:
+            return True
+        if "failed" in wanted and status == "failed":
+            return True
+        if wanted & _ACTIVE_WORDS:
+            # The progress API never reports "active", so an unstarted task
+            # counts as active when it is reachable - TarkovTracker's own
+            # fallback, and the reason this needs the full recursion.
+            if status == "complete" or self._is_unlockable(rid):
+                return True
+        return False
+
+    def _is_unlockable(self, tid: str) -> bool:
+        return self._compute(tid, True, self._unlockable, self._visiting_unlockable)
+
+    # -- evaluation --------------------------------------------------------
+
+    def _compute(self, tid: str | None, allow_completed: bool,
+                 memo: dict[str, bool], visiting: set[str]) -> bool:
+        if not tid:
+            return False
+        cached = memo.get(tid)
+        if cached is not None:
+            return cached
+        if tid in visiting:
+            return False
+        task = self.by_id.get(tid)
+        if task is None:
             return False
 
-    for req in task.get("traderRequirements") or []:
-        if (req.get("requirementType") or "").lower() != "level":
-            continue
-        trader = (req.get("trader") or {}).get("normalizedName") or ""
-        needed = req.get("value") or req.get("level") or 0
-        if trader_levels.get(trader, 1) < needed:
-            return False
+        visiting.add(tid)
+        try:
+            faction = task.get("factionName")
+            checks = (
+                lambda: allow_completed or self.statuses.get(tid) not in _CLOSED,
+                # Prestige tasks are unreachable without a prestige run, and
+                # the progress API reports no prestige level at all.
+                lambda: not task.get("requiredPrestige"),
+                lambda: (task.get("minPlayerLevel") or 0) <= self.level,
+                lambda: not faction or faction in ("Any", self.faction),
+                lambda: self._meets_trader_levels(task),
+                lambda: self._trader_unlocked(task),
+                lambda: all(self._requirement_met(r)
+                            for r in task.get("taskRequirements") or []),
+                lambda: not any(self.statuses.get(a) == "complete"
+                                for a in self.alternatives.get(tid) or ()),
+            )
+            result = all(check() for check in checks)
+        finally:
+            visiting.discard(tid)
 
-    return True
+        memo[tid] = result
+        return result
 
 
 # --------------------------------------------------------------------------
@@ -365,19 +471,19 @@ def is_raid_relevant(info: dict) -> bool:
 # --------------------------------------------------------------------------
 
 def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction: str,
-                trader_levels: dict[str, int], kappa_only: bool = False) -> list[MapBrief]:
+                trader_levels: dict[str, int], kappa_only: bool = False,
+                game_mode: str = "regular") -> list[MapBrief]:
     """Group every available task's objectives by the map they happen on."""
     buckets: dict[str, dict] = defaultdict(
         lambda: {"normalized": "", "tasks": [], "carry": set(), "keys": set(), "loot": set()}
     )
 
-    parents, alternatives = unlock_graph(tasks)
+    is_available = Availability(tasks, statuses, level, faction, trader_levels, game_mode)
 
     for task in tasks:
         if kappa_only and not task.get("kappaRequired"):
             continue
-        if not is_available(task, statuses, level, faction, trader_levels,
-                            parents, alternatives):
+        if not is_available(task):
             continue
 
         # A task lands on a map only if it has an objective to do there, and
