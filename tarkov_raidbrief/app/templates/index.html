@@ -1,0 +1,153 @@
+{#
+  Every URL in here is RELATIVE (no leading slash) on purpose: the page is
+  served both under the Home Assistant Ingress prefix and on the direct port,
+  and a relative href resolves correctly under both.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Raid Brief</title>
+  <link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="who">
+    {% if brief.player.has_token %}
+      <span class="name">{{ brief.player.name }}</span>
+      <span class="chip lvl">Lv {{ brief.player.level }}</span>
+      <span class="chip faction {{ brief.player.faction|lower }}">{{ brief.player.faction }}</span>
+      <span class="chip">{{ brief.player.tasks_complete }} done</span>
+    {% else %}
+      <span class="name">No token</span>
+    {% endif %}
+    <span class="chip mode">{{ brief.game_mode }}</span>
+  </div>
+  <div class="ages">
+    <span title="Age of the tarkov.dev task data">tasks {{ brief.tasks_age_seconds|age }}</span>
+    <span title="Age of your TarkovTracker progress">progress {{ brief.progress_age_seconds|age }}</span>
+    <button id="refresh" type="button" title="Force-refresh both upstreams">Refresh</button>
+  </div>
+</header>
+
+{% for w in brief.warnings %}
+  <div class="banner {{ w.kind }}">{{ w.message }}</div>
+{% endfor %}
+
+<nav class="controls">
+  <label class="maps">
+    <select id="map-select" aria-label="Choose map">
+      {% for m in brief.maps %}
+        <option value="{{ loop.index0 }}">{{ m.name }} &middot; {{ m.task_count }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <a class="toggle {% if brief.kappa_only %}on{% endif %}"
+     href="?kappa_only={{ 'false' if brief.kappa_only else 'true' }}">
+    Kappa only
+  </a>
+</nav>
+
+{% if not brief.maps %}
+  <p class="empty">
+    Nothing to show. Either every task is done (unlikely), the filters are too tight,
+    or the task data has not loaded yet — try Refresh.
+  </p>
+{% endif %}
+
+<main>
+{% for m in brief.maps %}
+  <section class="map" data-index="{{ loop.index0 }}" data-map="{{ m.normalized_name or m.name }}"
+           {% if not loop.first %}hidden{% endif %}>
+
+    <h1 class="map-title">
+      {{ m.name }}
+      <span class="count">{{ m.task_count }} task{{ '' if m.task_count == 1 else 's' }}</span>
+      {% if m.normalized_name %}
+        <a class="maplink" target="_blank" rel="noopener"
+           href="https://tarkov.dev/map/{{ m.normalized_name }}">map &#8599;</a>
+      {% endif %}
+    </h1>
+
+    {# CARRY IN is the primary block: it is the thing you act on while packing. #}
+    <section class="block primary">
+      <h2>Carry in <span class="n">{{ m.carry|length }}</span>
+        <button type="button" class="clear" data-clear="{{ m.normalized_name or m.name }}">clear</button>
+      </h2>
+      {% if m.carry %}
+        <ul class="check">
+          {% for item in m.carry %}
+            <li><label><input type="checkbox" value="{{ item }}"><span>{{ item }}</span></label></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="none">Nothing to bring — just go.</p>
+      {% endif %}
+    </section>
+
+    {# Keys are carry-in too, but they live in the secure container, so they get
+       their own block and their own checkboxes. #}
+    {% if m.keys %}
+    <section class="block keys">
+      <h2>Keys <span class="n">{{ m.keys|length }}</span></h2>
+      <ul class="check">
+        {% for item in m.keys %}
+          <li class="key"><label><input type="checkbox" value="key:{{ item }}"><span>{{ item }}</span></label></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if m.loot %}
+    <section class="block">
+      <h2>Bring out <span class="n">{{ m.loot|length }}</span></h2>
+      <ul class="plain">
+        {% for item in m.loot %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    <section class="block tasks">
+      <h2>Tasks</h2>
+      {% for t in m.tasks %}
+        <article class="task">
+          <h3>
+            {% if t.wiki %}<a href="{{ t.wiki }}" target="_blank" rel="noopener">{{ t.name }}</a>
+            {% else %}{{ t.name }}{% endif %}
+            {% if t.kappa %}<span class="kappa" title="Required for Kappa">K</span>{% endif %}
+          </h3>
+          <div class="meta">
+            <span>{{ t.trader }}</span>
+            <span>lvl {{ t.min_level }}</span>
+            <span>{{ "{:,}".format(t.xp) }} XP</span>
+          </div>
+          {% if t.carry or t.keys %}
+            <p class="tl carry"><b>Carry</b> {{ (t.carry + t.keys)|join(', ') }}</p>
+          {% endif %}
+          {% if t.loot %}
+            <p class="tl loot"><b>Out</b> {{ t.loot|join(', ') }}</p>
+          {% endif %}
+          <ul class="do">
+            {% for d in t.do %}<li>{{ d }}</li>{% endfor %}
+          </ul>
+        </article>
+      {% endfor %}
+    </section>
+  </section>
+{% endfor %}
+</main>
+
+<footer>
+  Data from <a href="https://tarkov.dev" target="_blank" rel="noopener">tarkov.dev</a>
+  and <a href="https://tarkovtracker.org" target="_blank" rel="noopener">TarkovTracker</a>.
+  Read-only, public APIs only.
+</footer>
+
+<script src="static/app.js"></script>
+</body>
+</html>

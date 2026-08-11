@@ -1,0 +1,229 @@
+/* Mobile-first, dark, tuned to sit next to Home Assistant's own panels. */
+
+:root {
+  --bg: #111214;
+  --surface: #1b1d21;
+  --surface-2: #23262b;
+  --line: #303540;
+  --text: #e3e5e8;
+  --dim: #9aa1ab;
+  --accent: #03a9f4;
+  --carry: #ffb648;
+  --loot: #5ed69a;
+  --key: #c792ea;
+  --danger: #ef5350;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+a { color: var(--accent); }
+
+/* ---------- top bar ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.who .name { font-weight: 600; }
+
+.chip {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--dim);
+}
+.chip.usec { color: #7fb4ff; }
+.chip.bear { color: #ffa06b; }
+.chip.lvl { color: var(--text); }
+
+.ages { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim); }
+
+button, .toggle {
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  text-decoration: none;
+}
+button:active { transform: translateY(1px); }
+
+/* ---------- banners ---------- */
+
+.banner {
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border-left: 3px solid var(--dim);
+  background: var(--surface);
+}
+.banner.auth      { border-left-color: var(--danger); }
+.banner.ratelimit { border-left-color: var(--carry); }
+.banner.stale     { border-left-color: var(--carry); }
+.banner.degraded  { border-left-color: var(--key); }
+.banner.upstream  { border-left-color: var(--danger); }
+
+/* ---------- controls ---------- */
+
+.controls {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  align-items: center;
+}
+.maps { flex: 1; min-width: 0; }
+
+select {
+  width: 100%;
+  font: inherit;
+  padding: 9px 10px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.toggle.on { background: var(--accent); border-color: var(--accent); color: #04222e; font-weight: 600; }
+
+/* ---------- map ---------- */
+
+main { padding: 0 12px 32px; }
+
+.map-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 12px;
+  font-size: 22px;
+}
+.map-title .count { font-size: 12px; color: var(--dim); font-weight: 400; }
+.map-title .maplink { font-size: 12px; margin-left: auto; }
+
+.block {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.block h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.block h2 .n { color: var(--text); }
+.block h2 .clear { margin-left: auto; padding: 3px 8px; font-size: 11px; }
+
+/* CARRY IN is the one thing you act on while packing, so it gets the weight. */
+.block.primary {
+  border-color: var(--carry);
+  border-left-width: 3px;
+  background: linear-gradient(180deg, rgba(255, 182, 72, .06), transparent 60px), var(--surface);
+}
+.block.primary h2 { color: var(--carry); }
+
+.block.keys { border-left: 3px solid var(--key); }
+.block.keys h2 { color: var(--key); }
+
+ul.check, ul.plain, ul.do { list-style: none; margin: 0; padding: 0; }
+
+ul.check li + li { border-top: 1px solid var(--line); }
+ul.check label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 2px;
+  cursor: pointer;
+  /* Comfortable thumb target — this gets used one-handed in the stash. */
+  min-height: 40px;
+}
+ul.check input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+ul.check em { margin-left: auto; font-style: normal; font-size: 10px; color: var(--key); text-transform: uppercase; }
+ul.check input:checked + span { color: var(--dim); text-decoration: line-through; }
+ul.check li.key span { color: var(--key); }
+
+ul.plain li { padding: 6px 2px; color: var(--loot); }
+ul.plain li + li { border-top: 1px solid var(--line); }
+
+.none { margin: 0; color: var(--dim); font-size: 13px; }
+.empty { margin: 24px 12px; color: var(--dim); }
+
+/* ---------- tasks ---------- */
+
+.task { padding: 10px 0; border-top: 1px solid var(--line); }
+.task:first-of-type { border-top: 0; }
+.task h3 { margin: 0 0 3px; font-size: 15px; font-weight: 600; }
+.task h3 a { text-decoration: none; }
+
+.kappa {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #04222e;
+  vertical-align: middle;
+}
+
+.task .meta { display: flex; gap: 10px; font-size: 11px; color: var(--dim); margin-bottom: 6px; }
+
+.tl { margin: 3px 0; font-size: 13px; }
+.tl b { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; margin-right: 5px; }
+.tl.carry b { color: var(--carry); }
+.tl.loot  b { color: var(--loot); }
+
+ul.do li {
+  font-size: 13px;
+  color: var(--dim);
+  padding: 2px 0 2px 14px;
+  position: relative;
+}
+ul.do li::before { content: "·"; position: absolute; left: 4px; color: var(--line); }
+
+footer { padding: 16px 12px 28px; font-size: 11px; color: var(--dim); text-align: center; }
+
+/* ---------- wider screens (second monitor) ---------- */
+
+@media (min-width: 820px) {
+  main { max-width: 1100px; margin: 0 auto; }
+  .map-title { font-size: 26px; }
+  /* Carry / keys / loot read side by side; the task list stays full width. */
+  .map { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; align-items: start; }
+  .map-title, .block.tasks { grid-column: 1 / -1; }
+}

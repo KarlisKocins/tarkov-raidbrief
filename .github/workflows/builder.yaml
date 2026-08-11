@@ -1,0 +1,104 @@
+---
+name: Build add-on images
+
+# Publishing runs on a version bump (or on demand). Pull requests build without
+# pushing, so a broken Dockerfile is caught before it reaches anyone's HA.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tarkov_raidbrief/**"
+      - ".github/workflows/builder.yaml"
+  pull_request:
+    paths:
+      - "tarkov_raidbrief/**"
+  workflow_dispatch:
+
+env:
+  ADDON_SLUG: tarkov_raidbrief
+
+jobs:
+  info:
+    name: Read add-on version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      changed: ${{ steps.meta.outputs.changed }}
+      owner: ${{ steps.meta.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Extract version and detect a bump
+        id: meta
+        run: |
+          version="$(yq -r '.version' "${ADDON_SLUG}/config.yaml")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Add-on version: ${version}"
+
+          # GHCR paths must be lowercase; GitHub owner names need not be.
+          echo "owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" \
+            >> "$GITHUB_OUTPUT"
+
+          # Only publish when config.yaml's version actually changed, so ordinary
+          # code pushes don't silently overwrite a released tag.
+          if git rev-parse HEAD~1 >/dev/null 2>&1 \
+             && git show "HEAD~1:${ADDON_SLUG}/config.yaml" >/tmp/prev.yaml 2>/dev/null; then
+            previous="$(yq -r '.version' /tmp/prev.yaml)"
+          else
+            previous=""
+          fi
+          if [ "${version}" != "${previous}" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version changed: ${previous:-<none>} -> ${version}"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged (${version}); building without publishing."
+          fi
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: info
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, amd64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Log in to GHCR
+        if: needs.info.outputs.changed == 'true' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # NOTE on the `--test` expression below: GitHub's `cond && A || B` ternary
+      # falls through to B whenever A is falsy, and the empty string IS falsy.
+      # Writing it the natural way round (`publish && '' || '--test'`) therefore
+      # passes --test even when publishing - a silent no-op push. Keep the
+      # condition inverted so the truthy value ('--test') sits in the A slot.
+      - name: Build${{ (needs.info.outputs.changed == 'true' && github.event_name != 'pull_request') && ' and push' || '' }}
+        # Pin to a tag that actually has a published builder image on ghcr.io.
+        # Newer git tags exist (e.g. 2026.06.0) without a matching
+        # ghcr.io/home-assistant/amd64-builder image, and the action fails with
+        # "manifest unknown" when you use one. Verify before bumping:
+        #   docker manifest inspect ghcr.io/home-assistant/amd64-builder:<tag>
+        uses: home-assistant/builder@2026.03.2
+        with:
+          args: |
+            --${{ matrix.arch }} \
+            --target /data/${{ env.ADDON_SLUG }} \
+            --image ${{ matrix.arch }}-addon-tarkov-raidbrief \
+            --docker-hub ghcr.io/${{ needs.info.outputs.owner }} \
+            --addon \
+            ${{ (needs.info.outputs.changed != 'true' || github.event_name == 'pull_request') && '--test' || '' }}

@@ -1,0 +1,109 @@
+/* Small enough to read in one sitting, which is the point: no build step,
+   no framework, and it has to keep working on an ARM SBC for years.
+
+   All fetch() URLs are relative so they resolve under the Home Assistant
+   Ingress prefix as well as on the direct :8099 port. */
+
+(function () {
+  "use strict";
+
+  var STORE_PREFIX = "raidbrief.checked.";
+  var LAST_MAP_KEY = "raidbrief.lastMap";
+
+  var select = document.getElementById("map-select");
+  var sections = Array.prototype.slice.call(document.querySelectorAll("section.map"));
+
+  /* ---- map switching (all maps are already in the DOM) ---- */
+
+  function show(index) {
+    sections.forEach(function (s) {
+      s.hidden = String(s.dataset.index) !== String(index);
+    });
+    var active = sections[index];
+    if (active) {
+      try { localStorage.setItem(LAST_MAP_KEY, active.dataset.map); } catch (e) { /* private mode */ }
+    }
+  }
+
+  if (select) {
+    select.addEventListener("change", function () { show(select.value); });
+
+    // Come back to the map you were last packing for.
+    var last = null;
+    try { last = localStorage.getItem(LAST_MAP_KEY); } catch (e) { /* ignore */ }
+    if (last) {
+      var match = sections.filter(function (s) { return s.dataset.map === last; })[0];
+      if (match) { select.value = match.dataset.index; show(match.dataset.index); }
+    }
+  }
+
+  /* ---- carry-in checkboxes, persisted per map ---- */
+
+  function keyFor(map) { return STORE_PREFIX + map; }
+
+  function loadChecked(map) {
+    try {
+      return JSON.parse(localStorage.getItem(keyFor(map)) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveChecked(map, values) {
+    try {
+      if (values.length) {
+        localStorage.setItem(keyFor(map), JSON.stringify(values));
+      } else {
+        localStorage.removeItem(keyFor(map));
+      }
+    } catch (e) { /* storage full or blocked; ticking still works for this session */ }
+  }
+
+  sections.forEach(function (section) {
+    var map = section.dataset.map;
+    var boxes = Array.prototype.slice.call(section.querySelectorAll("ul.check input"));
+    var checked = loadChecked(map);
+
+    boxes.forEach(function (box) {
+      if (checked.indexOf(box.value) !== -1) box.checked = true;
+      box.addEventListener("change", function () {
+        var current = boxes.filter(function (b) { return b.checked; })
+                           .map(function (b) { return b.value; });
+        saveChecked(map, current);
+      });
+    });
+
+    var clear = section.querySelector("[data-clear]");
+    if (clear) {
+      clear.addEventListener("click", function () {
+        boxes.forEach(function (b) { b.checked = false; });
+        saveChecked(map, []);
+      });
+    }
+  });
+
+  /* ---- refresh ---- */
+
+  var refresh = document.getElementById("refresh");
+  if (refresh) {
+    refresh.addEventListener("click", function () {
+      refresh.disabled = true;
+      var original = refresh.textContent;
+      refresh.textContent = "...";
+
+      fetch("api/refresh", { method: "POST", headers: { "Accept": "application/json" } })
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function () { window.location.reload(); })
+        .catch(function (err) {
+          refresh.disabled = false;
+          refresh.textContent = original;
+          // The server reports upstream problems as banners; this is for the
+          // case where the add-on itself is unreachable.
+          alert("Refresh failed: " + err.message);
+        });
+    });
+  }
+})();
