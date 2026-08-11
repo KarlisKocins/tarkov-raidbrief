@@ -92,6 +92,15 @@ def _counted(text: str, count: int) -> str:
     return f"{text} x{count}" if count and count > 1 else text
 
 
+def _symbol(compare_method: str | None) -> str:
+    """Comparison symbols. The JSON API sends '>='/'<=' where GraphQL sent
+    'moreThan'/'lessThan', so both spellings are mapped."""
+    return {
+        "moreThan": ">", "lessThan": "<", "equals": "=",
+        ">=": "≥", "<=": "≤", ">": ">", "<": "<", "=": "=",
+    }.get(compare_method or "", "")
+
+
 # --------------------------------------------------------------------------
 # availability
 # --------------------------------------------------------------------------
@@ -167,15 +176,17 @@ def _conditions(obj: dict) -> list[str]:
     if parts:
         bits.append("hit " + "/".join(sorted(set(parts))))
 
+    # `distance` is present on nearly every shoot objective but reads
+    # `>= 0` in 178 of 192 real cases, which means "no requirement". Only a
+    # positive threshold is worth screen space.
     dist = obj.get("distance")
-    if isinstance(dist, dict) and dist.get("value") is not None:
-        symbol = {"moreThan": ">", "lessThan": "<", "equals": "="}.get(
-            dist.get("compareMethod") or "", ""
-        )
-        bits.append(f"{symbol}{int(dist['value'])}m")
+    if isinstance(dist, dict) and (dist.get("value") or 0) > 0:
+        bits.append(f"{_symbol(dist.get('compareMethod'))}{int(dist['value'])}m")
 
+    # shotType is "kill" 198 times out of 200 - the description already says
+    # "Eliminate", so only the rare "hit" adds anything.
     shot = obj.get("shotType")
-    if shot and shot != "hit":
+    if shot and shot != "kill":
         bits.append(shot.replace("_", " "))
 
     not_wearing = flatten(obj.get("notWearing"))
@@ -221,11 +232,10 @@ def parse_objective(obj: dict) -> dict:
         carry += [label(p) for p in (obj.get("containsAll") or [])]
         for attr in obj.get("attributes") or []:
             req = attr.get("requirement") or {}
-            if attr.get("name") and req.get("value") is not None:
-                symbol = {"moreThan": ">", "lessThan": "<", "equals": "="}.get(
-                    req.get("compareMethod") or "", ""
-                )
-                do.append(f"build requirement: {attr['name']} {symbol}{req['value']}")
+            # A zeroed threshold is "unconstrained", same as distance above.
+            if attr.get("name") and (req.get("value") or 0) > 0:
+                do.append(f"build: {attr['name']} "
+                          f"{_symbol(req.get('compareMethod'))}{req['value']}")
 
     elif otype == "useItem":
         options = obj.get("useAny") or []

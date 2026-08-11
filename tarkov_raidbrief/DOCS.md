@@ -56,6 +56,10 @@ character, with a banner saying so.
 | *TarkovTracker rate-limited us (429)* | Raise `refresh_minutes`. Data shown is the last good copy. |
 | *tarkov.dev could not be reached* | Nothing to do; cached data is being served. It'll recover on its own. |
 | *tarkov.dev rejected part of the query* | The schema changed. The add-on dropped the named block and kept going; some detail (often KEYS) is missing until it's updated. |
+| *Could not reach tarkov.dev on either the JSON or GraphQL API* | Both sources failed and there's no cache yet. Check the add-on has internet access, then hit Refresh. |
+
+Task data comes from `json.tarkov.dev`; the GraphQL API has been down since
+2026-07-21 and is used only as a fallback. See the repository README for detail.
 
 For deeper debugging, expose port `8099` in the **Network** tab and hit
 `/health`, `/api/brief` and `POST /api/refresh` directly.

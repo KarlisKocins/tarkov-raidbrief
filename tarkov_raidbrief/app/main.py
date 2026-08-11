@@ -36,6 +36,7 @@ from fastapi.templating import Jinja2Templates
 from .brief import build_brief, filter_brief
 from .models import Brief, PlayerInfo, Settings, Warning_
 from .tarkovdev import CACHE_TTL, TarkovDev, TarkovDevError
+from .tarkovjson import TarkovJson, TarkovJsonError
 from .tracker import Tracker, TrackerAuthError, TrackerRateLimited, TrackerUnavailable
 
 logging.basicConfig(
@@ -52,7 +53,12 @@ class State:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.tarkovdev = TarkovDev(settings.data_dir / "tasks.json", settings.game_mode)
+        # JSON API is primary: the GraphQL endpoint has been down since
+        # 2026-07-21 and the maintainers point integrators at json.tarkov.dev.
+        # GraphQL stays as a fallback in case it comes back.
+        self.tarkovjson = TarkovJson(settings.data_dir / "tasks.json", settings.game_mode)
+        self.tarkovdev = TarkovDev(settings.data_dir / "tasks-graphql.json", settings.game_mode)
+        self.source = "json"
         self.tracker = Tracker(
             settings.token,
             settings.tracker_game_mode,
@@ -67,14 +73,27 @@ class State:
     # -- upstream refresh --------------------------------------------------
 
     async def refresh_tasks(self, force: bool = False) -> None:
+        """Load tasks from the JSON API, falling back to GraphQL if it fails."""
+        try:
+            self.tasks, self.tasks_fetched, _ = await self.tarkovjson.get_tasks(force=force)
+            self.source = "json"
+            self.tasks_warning = None
+            return
+        except TarkovJsonError as json_exc:
+            log.warning("json.tarkov.dev failed (%s); trying the GraphQL API", json_exc)
+
         try:
             self.tasks, self.tasks_fetched, _ = await self.tarkovdev.get_tasks(force=force)
+            self.source = "graphql"
             self.tasks_warning = None
-        except TarkovDevError as exc:
-            log.error("Could not load tasks: %s", exc)
+            log.info("Loaded tasks from the GraphQL API fallback")
+        except TarkovDevError as gql_exc:
+            log.error("Could not load tasks from either source: %s", gql_exc)
             self.tasks_warning = Warning_(
                 "upstream",
-                f"tarkov.dev is unreachable and there is no cached task data yet. {exc}",
+                "Could not reach tarkov.dev on either the JSON or GraphQL API, and "
+                "there is no cached task data yet. Check the add-on's network access "
+                "and hit Refresh.",
             )
 
     async def refresh_progress(self) -> None:
@@ -99,6 +118,11 @@ class State:
         async with self.lock:
             await self.refresh_tasks(force=force)
             await self.refresh_progress()
+
+    @property
+    def active_source(self):
+        """Whichever client actually supplied the tasks we are serving."""
+        return self.tarkovjson if self.source == "json" else self.tarkovdev
 
     # -- brief -------------------------------------------------------------
 
@@ -128,7 +152,7 @@ class State:
                 "No TarkovTracker token configured - showing every task as if for a "
                 "fresh level 99 character. Add a token in the add-on Configuration tab.",
             ))
-        if self.tarkovdev.serving_stale or (
+        if self.active_source.serving_stale or (
             self.tasks_fetched and (time.time() - self.tasks_fetched) > CACHE_TTL
         ):
             age = _age(time.time() - self.tasks_fetched) if self.tasks_fetched else "unknown age"
@@ -138,10 +162,10 @@ class State:
                 f"{age}. Everything still works; it just will not pick up a new patch "
                 f"until the API is back.",
             ))
-        if self.tarkovdev.dropped_blocks:
-            dropped = ", ".join(self.tarkovdev.dropped_blocks)
+        if self.active_source.dropped_blocks:
+            dropped = ", ".join(self.active_source.dropped_blocks)
             detail = (" The KEYS section may be incomplete."
-                      if "requiredKeys" in self.tarkovdev.dropped_blocks else "")
+                      if "requiredKeys" in self.active_source.dropped_blocks else "")
             warnings.append(Warning_(
                 "degraded",
                 f"tarkov.dev rejected part of the query, so some detail is "
@@ -165,7 +189,7 @@ class State:
             ),
             game_mode=settings.game_mode,
             kappa_only=kappa,
-            dropped_blocks=list(self.tarkovdev.dropped_blocks),
+            dropped_blocks=list(self.active_source.dropped_blocks),
             generated_at=now,
         )
 
