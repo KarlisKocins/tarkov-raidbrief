@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest an addition or a change.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [non-goals](https://github.com/KarlisKocins/tarkov-raidbrief#non-goals)
+        first — game memory reading, injection, input automation, an in-game
+        overlay and writes back to TarkovTracker are all deliberately out of
+        scope, as is an interactive map.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do while packing that the add-on makes hard?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: data
+    attributes:
+      label: Where would the data come from?
+      description: >-
+        The add-on only reads tarkov.dev, TarkovTracker and the community data
+        overlay. If your idea needs something else, say which endpoint or field
+        it would use.

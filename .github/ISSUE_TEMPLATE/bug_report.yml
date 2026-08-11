@@ -1,0 +1,88 @@
+name: Bug report
+description: Something is broken, or the brief shows the wrong tasks.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please **redact your TarkovTracker API token and
+        Gemini API key** from anything you paste — they appear in the add-on's
+        configuration and can appear in logs.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: input
+    id: addon-version
+    attributes:
+      label: Add-on version
+      description: Shown at the top of the add-on page in the Add-on Store.
+      placeholder: "1.4.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: game-mode
+    attributes:
+      label: Game mode
+      options:
+        - regular (PvP)
+        - pve
+    validations:
+      required: true
+
+  - type: input
+    id: player-level
+    attributes:
+      label: Player level
+      description: >-
+        Only needed for "wrong tasks are listed" reports — availability depends
+        on it.
+      placeholder: "15"
+
+  - type: textarea
+    id: wrong-tasks
+    attributes:
+      label: Which tasks are wrong?
+      description: >-
+        If a task is listed that you cannot take (or a task you can take is
+        missing), name it and say what actually gates it — trader loyalty level,
+        a prerequisite quest, player level, faction.
+      placeholder: |
+        "A Shooter Born in Heaven" is listed, but it needs Mechanic LL4 and I'm on LL2.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Add-on log
+      description: >-
+        From the add-on's **Log** tab. Token redacted, please.
+      render: text
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Home Assistant version, architecture (aarch64 / amd64) and hardware, plus
+        whether you reached the add-on through Ingress (the sidebar) or the
+        direct port.
+      placeholder: |
+        HA 2026.7.3, HA Green (aarch64), opened from the sidebar.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: >-
+            My `trader_levels` are set to my real loyalty levels (leaving them at
+            1 hides every task gated behind LL2–4).
+          required: true
+        - label: I searched existing issues for this.
+          required: true

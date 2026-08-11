@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.5.0
+
+A visual pass on the whole page, plus one layout bug that had been hiding in
+the wide-screen view since the two-column grid was added.
+
+- **New look: "field issue".** Squared corners, hairline rules, uppercase
+  letterspaced labels and monospace type on near-black olive — a printed
+  briefing sheet rather than a web app. Section colour is now semantic and
+  consistent: khaki is CARRY IN, steel blue is KEYS, olive green is BRING OUT,
+  lilac is AI. That split is the fastest way to tell the authoritative packing
+  lists apart from generated advice, so it is load-bearing, not decoration.
+- **Every map rendered at once on wide screens.** `.map { display: grid }`
+  overrides the browser's own rule for the `hidden` attribute, which is what
+  the page and the map switcher use to show one map at a time. Above 820px
+  that meant all your maps stacked down the page instead of just the selected
+  one. The grid now restates `display: none` for hidden maps.
+- No web fonts are loaded. The intended faces (IBM Plex Mono, Saira
+  Condensed) are named first in the font stack and fall back to system faces,
+  so the page still makes no request outside tarkov.dev and TarkovTracker and
+  still renders with no network at all.
+- The three packing columns now sit side by side in the order you pack them,
+  and reflow to fill the row on maps with no keys or nothing to loot. Tasks
+  read in two columns with trader, level and XP pulled right onto the title.
+  Phone layout is unchanged apart from the styling — still single column, still
+  40px tick targets.
+- **The add-on now has an icon and a logo** in the Add-on Store instead of a
+  grey placeholder, and every option in the Configuration tab has a real label
+  and description instead of a raw key name like `excluded_maps`.
+- The Documentation tab was missing `excluded_maps`, `gemini_api_key` and
+  `gemini_model` entirely; all three are documented now, with defaults.
+
 ## 1.4.0
 
 Fixes the add-on listing tasks you cannot actually take. On a level 15

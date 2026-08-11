@@ -1,4 +1,11 @@
-# Tarkov Raid Brief — Home Assistant add-on repository
+<div align="center">
+
+<img src="tarkov_raidbrief/logo.png" alt="Tarkov Raid Brief" width="420">
+
+### Home Assistant add-on repository
+
+**"What do I bring to which map?" for Escape from Tarkov** — on your phone or
+second monitor while you're in the stash picking a loadout.
 
 [![Build add-on images](https://github.com/KarlisKocins/tarkov-raidbrief/actions/workflows/builder.yaml/badge.svg)](https://github.com/KarlisKocins/tarkov-raidbrief/actions/workflows/builder.yaml)
 [![GitHub release](https://img.shields.io/github/v/release/KarlisKocins/tarkov-raidbrief?include_prereleases&sort=semver)](https://github.com/KarlisKocins/tarkov-raidbrief/releases)
@@ -8,59 +15,72 @@
 
 [![Add repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FKarlisKocins%2Ftarkov-raidbrief)
 
-"What do I bring to which map?" for Escape from Tarkov, on your phone or second
-monitor while you're in the stash picking a loadout.
+[Install](#install) · [Options](#options) · [How it works](#how-it-works) ·
+[Documentation](tarkov_raidbrief/DOCS.md) · [Changelog](CHANGELOG.md)
+
+</div>
+
+---
+
+## Overview
+
+This repository contains one Home Assistant add-on:
+
+| Add-on | Version | Description |
+|---|---|---|
+| [**Tarkov Raid Brief**](tarkov_raidbrief) | ![version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2FKarlisKocins%2Ftarkov-raidbrief%2Fmain%2Ftarkov_raidbrief%2Fconfig.yaml&query=%24.version&label=%20&color=41bdf5) | Per-map raid brief driven by your live task progress. |
 
 It joins your live task progress from **TarkovTracker** (fed automatically by
 TarkovMonitor) with task data from **tarkov.dev**, and gives you a per-map
 brief: what to **carry in**, which **keys** you need, what to **bring out**, and
 what to actually **do**.
 
+- **Per-map packing lists** — CARRY IN, KEYS, BRING OUT and DO, built only from
+  the tasks you can actually take right now.
+- **Tickable checklist** — ticks are saved per map in your browser and survive
+  reloads.
+- **"Run next" ranking** — a deterministic score (finishable-task XP, discounted
+  partial XP, a Kappa bonus, a per-key penalty), with the breakdown on screen.
+- **Availability that matches TarkovTracker**, including the community
+  [data overlay](#the-data-overlay--why-raw-tarkovdev-is-not-enough) the tracker
+  itself applies — so the list doesn't show quests you can't take.
+- **Ingress-native** — appears in the HA sidebar and the companion app, no port
+  to open.
+- **Offline-tolerant** — task data and your last good progress snapshot are
+  cached to disk and survive restarts; upstream failures become banners, not
+  stack traces.
+- **Optional AI route advice**, off by default and confined to a block that can
+  never touch your packing lists.
+
 Read-only and public-API only. No game memory reading, no injection, no overlay,
 no writes back to TarkovTracker.
 
-## Data sources — read this if tasks won't load
+<details>
+<summary><b>Contents</b></summary>
 
-Task data comes from **`json.tarkov.dev`**, not the GraphQL API. The GraphQL
-endpoint (`api.tarkov.dev/graphql`) has been returning
-`{"errors":["GraphQL server unavailable. Try again later."]}` continuously since
-2026-07-21 — see [tarkov-api#474](https://github.com/the-hideout/tarkov-api/issues/474),
-still open at the time of writing. A maintainer's answer on that issue:
+- [Install](#install)
+  - [Getting a TarkovTracker token](#getting-a-tarkovtracker-token)
+  - [Trader loyalty levels](#trader-loyalty-levels)
+- [Options](#options)
+- [AI route advice (optional)](#ai-route-advice-optional)
+- [How it works](#how-it-works)
+  - [Data sources — read this if tasks won't load](#data-sources--read-this-if-tasks-wont-load)
+  - [The data overlay](#the-data-overlay--why-raw-tarkovdev-is-not-enough)
+  - [How Ingress is handled](#how-ingress-is-handled)
+  - [Data handling](#data-handling)
+  - [Schema fragility (the GraphQL fallback)](#schema-fragility-the-graphql-fallback)
+- [Development](#development)
+  - [Debugging via the direct port](#debugging-via-the-direct-port)
+  - [Tests](#tests)
+  - [Building the image yourself](#building-the-image-yourself)
+  - [Releasing a new version](#releasing-a-new-version)
+  - [Repository layout](#repository-layout)
+- [Non-goals](#non-goals)
+- [Support](#support)
+- [Credits](#credits)
+- [License](#license)
 
-> "The GraphQL API is down for the moment, but you have the Json API who alive
-> (https://json.tarkov.dev/endpoints). Tarkov.dev is based on this Json API and
-> not on the GraphQL."
-
-So the add-on reads the JSON API first and falls back to GraphQL automatically
-if it ever returns. Nothing to configure either way.
-
-The JSON API is harder to consume — it is unresolved (every reference is a bare
-id) and untranslated (a task's `name` is literally `"657315... name"`). The
-add-on fetches items/maps/traders alongside tasks, joins the ids, and resolves
-text via the sibling `<path>_en` files, using the same `lang[value] ?? value`
-rule the tarkov.dev site uses.
-
-### The data overlay — why raw tarkov.dev is not enough
-
-tarkov.dev's task data is wrong in ways that decide availability, and
-TarkovTracker does not consume it raw: it pipes every response through
-[`tarkov-data-overlay`](https://github.com/tarkovtracker-org/tarkov-data-overlay),
-a community-maintained patch file. This add-on does the same, because the gap
-is not marginal — json.tarkov.dev ships **17** trader loyalty requirements
-across all 510 tasks, and the overlay adds **247** more. Without it, A Shooter
-Born in Heaven looks like it needs nothing when it actually needs Mechanic LL4.
-
-The overlay also retires the 32 quests BSG has removed from the game (Rite of
-Passage, Farming - Part 2, Signal Parts 3 and 4, …) and corrects task names and
-XP values. It is fetched hourly on its own clock, so a correction lands without
-waiting out the 24-hour task cache, and is cached to `/data/overlay.json`. If
-it cannot be fetched at all the add-on says so in a banner and falls back to
-raw tarkov.dev data, which over-reports.
-
-Two gates exist in neither source and are hardcoded, exactly as TarkovTracker
-hardcodes them: traders that do not exist until a quest is done (BTR Driver
-needs A Helping Hand, Lightkeeper needs Getting Acquainted), and A Helping
-Hand's own level 20 / Saving the Mole requirement.
+</details>
 
 ---
 
@@ -159,7 +179,54 @@ Enabling this sends your task progress and player level to Google, which is a
 change from the add-on's otherwise strict "tarkov.dev and TarkovTracker only"
 policy. Leave the key empty to keep that guarantee.
 
-## How Ingress is handled
+---
+
+## How it works
+
+### Data sources — read this if tasks won't load
+
+Task data comes from **`json.tarkov.dev`**, not the GraphQL API. The GraphQL
+endpoint (`api.tarkov.dev/graphql`) has been returning
+`{"errors":["GraphQL server unavailable. Try again later."]}` continuously since
+2026-07-21 — see [tarkov-api#474](https://github.com/the-hideout/tarkov-api/issues/474),
+still open at the time of writing. A maintainer's answer on that issue:
+
+> "The GraphQL API is down for the moment, but you have the Json API who alive
+> (https://json.tarkov.dev/endpoints). Tarkov.dev is based on this Json API and
+> not on the GraphQL."
+
+So the add-on reads the JSON API first and falls back to GraphQL automatically
+if it ever returns. Nothing to configure either way.
+
+The JSON API is harder to consume — it is unresolved (every reference is a bare
+id) and untranslated (a task's `name` is literally `"657315... name"`). The
+add-on fetches items/maps/traders alongside tasks, joins the ids, and resolves
+text via the sibling `<path>_en` files, using the same `lang[value] ?? value`
+rule the tarkov.dev site uses.
+
+### The data overlay — why raw tarkov.dev is not enough
+
+tarkov.dev's task data is wrong in ways that decide availability, and
+TarkovTracker does not consume it raw: it pipes every response through
+[`tarkov-data-overlay`](https://github.com/tarkovtracker-org/tarkov-data-overlay),
+a community-maintained patch file. This add-on does the same, because the gap
+is not marginal — json.tarkov.dev ships **17** trader loyalty requirements
+across all 510 tasks, and the overlay adds **247** more. Without it, A Shooter
+Born in Heaven looks like it needs nothing when it actually needs Mechanic LL4.
+
+The overlay also retires the 32 quests BSG has removed from the game (Rite of
+Passage, Farming - Part 2, Signal Parts 3 and 4, …) and corrects task names and
+XP values. It is fetched hourly on its own clock, so a correction lands without
+waiting out the 24-hour task cache, and is cached to `/data/overlay.json`. If
+it cannot be fetched at all the add-on says so in a banner and falls back to
+raw tarkov.dev data, which over-reports.
+
+Two gates exist in neither source and are hardcoded, exactly as TarkovTracker
+hardcodes them: traders that do not exist until a quest is done (BTR Driver
+needs A Helping Hand, Lightkeeper needs Getting Acquainted), and A Helping
+Hand's own level 20 / Saving the Mole requirement.
+
+### How Ingress is handled
 
 Ingress serves the add-on under a generated path prefix and passes it in the
 `X-Ingress-Path` header. Emitting absolute URLs (`/api/brief`, `/static/app.css`)
@@ -179,39 +246,7 @@ that combined prefix from a path that no longer has it — the strip fails and
 unstyled page rather than an obvious error, which makes it easy to ship. This
 was reproduced and removed; don't add it back.
 
----
-
-## Debugging via the direct port
-
-Port `8099` is exposed as well as Ingress. Set it in the add-on's **Network**
-tab (e.g. to `8099`), then:
-
-```bash
-curl -s http://homeassistant.local:8099/health | jq
-curl -s http://homeassistant.local:8099/api/brief | jq '.player, .warnings'
-curl -s 'http://homeassistant.local:8099/api/brief?map=customs' | jq '.maps[0].carry'
-curl -s -X POST http://homeassistant.local:8099/api/refresh | jq
-```
-
-To check the Ingress path handling without HA:
-
-```bash
-curl -s http://homeassistant.local:8099/ -H 'X-Ingress-Path: /api/hassio_ingress/test' \
-  | grep -oE '(href|src)="/[^"]*"'    # should print nothing
-```
-
-### Endpoints
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /` | The page. Accepts `?map=` and `?kappa_only=`. |
-| `GET /api/brief` | Full brief as JSON. Optional `?map=` and `?kappa_only=`. |
-| `POST /api/refresh` | Force-refresh both upstreams and bust the task cache. |
-| `GET /health` | Liveness. Makes no upstream calls. |
-
----
-
-## Data handling
+### Data handling
 
 - The joined task dump is cached to `/data/tasks.json` with a **24h TTL** — it
   is several MB across four endpoints and only changes on patch day. It survives
@@ -225,7 +260,7 @@ curl -s http://homeassistant.local:8099/ -H 'X-Ingress-Path: /api/hassio_ingress
 - `401` (bad token) and `429` (rate limited) become clear banners in the UI, not
   stack traces.
 
-## Schema fragility (the GraphQL fallback)
+### Schema fragility (the GraphQL fallback)
 
 This applies to the GraphQL path, which is currently only the fallback — but it
 is what will run if `api.tarkov.dev/graphql` comes back.
@@ -246,7 +281,39 @@ the catch-all that `visit` resolves to, and 28 `visit` objectives carry keys.
 A schema introspection call runs on first fetch and logs which optional fields
 are actually present, including whether `tasks()` accepts `gameMode`.
 
-## Tests
+---
+
+## Development
+
+### Debugging via the direct port
+
+Port `8099` is exposed as well as Ingress. Set it in the add-on's **Network**
+tab (e.g. to `8099`), then:
+
+```bash
+curl -s http://homeassistant.local:8099/health | jq
+curl -s http://homeassistant.local:8099/api/brief | jq '.player, .warnings'
+curl -s 'http://homeassistant.local:8099/api/brief?map=customs' | jq '.maps[0].carry'
+curl -s -X POST http://homeassistant.local:8099/api/refresh | jq
+```
+
+To check the Ingress path handling without HA:
+
+```bash
+curl -s http://homeassistant.local:8099/ -H 'X-Ingress-Path: /api/hassio_ingress/test' \
+  | grep -oE '(href|src)="/[^"]*"'    # should print nothing
+```
+
+#### Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /` | The page. Accepts `?map=` and `?kappa_only=`. |
+| `GET /api/brief` | Full brief as JSON. Optional `?map=` and `?kappa_only=`. |
+| `POST /api/refresh` | Force-refresh both upstreams and bust the task cache. |
+| `GET /health` | Liveness. Makes no upstream calls. |
+
+### Tests
 
 Two checks, both aimed at the ways this app can rot between patches:
 
@@ -266,9 +333,7 @@ python3 tests/test_objective_coverage.py
 The second one caught two real types (`dialogue`, `globalVariable`) that would
 otherwise have shown up as fake "things to do" on every map.
 
----
-
-## Building the image yourself
+### Building the image yourself
 
 CI does this for you on every version bump, but to verify a build locally:
 
@@ -299,19 +364,17 @@ docker run --rm -p 8099:8099 -v "$PWD/testdata:/data" \
   -m uvicorn app.main:app --host 0.0.0.0 --port 8099 --app-dir /app
 ```
 
-## Releasing a new version
+### Releasing a new version
 
 CI publishes only when `tarkov_raidbrief/config.yaml`'s `version` changes, so an
 ordinary code push can't silently overwrite a released tag.
 
 1. Bump `version` in `tarkov_raidbrief/config.yaml`.
-2. Add a `CHANGELOG.md` entry.
+2. Add a `CHANGELOG.md` entry (both copies — the root one and the add-on's).
 3. Push to `main`. The workflow builds both arches and pushes to GHCR.
 4. In HA: **⋮ → Check for updates** in the Add-on Store.
 
----
-
-## Repository layout
+### Repository layout
 
 ```
 .
@@ -320,6 +383,9 @@ ordinary code push can't silently overwrite a released tag.
 ├── tests/test_query_validates.py   # offline GraphQL query validation
 └── tarkov_raidbrief/               # the add-on itself
     ├── config.yaml  Dockerfile  build.yaml  run.sh  requirements.txt
+    ├── DOCS.md                     # rendered as the add-on's Documentation tab
+    ├── icon.png  logo.png          # shown in the HA Add-on Store
+    ├── translations/en.yaml        # option labels in the Configuration tab
     └── app/
         ├── main.py       # FastAPI entrypoint, ingress handling, background poller
         ├── tarkovjson.py # JSON API client (primary): id joins + translations
@@ -328,9 +394,13 @@ ordinary code push can't silently overwrite a released tag.
         ├── overlay.py    # tarkov-data-overlay: the corrections tarkov.dev lacks
         ├── brief.py      # availability + carry/loot/do classification
         ├── models.py     # dataclasses + settings
+        ├── recommend.py  # deterministic "Run next" scoring
+        ├── gemini.py     # optional AI route advice
         ├── static/       # app.css, app.js  (no build step, no framework)
         └── templates/    # index.html
 ```
+
+---
 
 ## Non-goals
 
@@ -339,11 +409,20 @@ log-file and public-API data only. No writes to TarkovTracker. No accounts, no
 telemetry, no external calls beyond tarkov.dev and TarkovTracker. No interactive
 map; it links out to tarkov.dev instead.
 
+## Support
+
+Found a bug, or a task showing up that you can't actually take?
+[Open an issue](https://github.com/KarlisKocins/tarkov-raidbrief/issues/new/choose)
+— the add-on's log and your player level help a lot. Contributions are welcome;
+see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Credits
 
 Task data from [tarkov.dev](https://tarkov.dev). Progress from
 [TarkovTracker](https://tarkovtracker.org), fed by
-[TarkovMonitor](https://github.com/the-hideout/TarkovMonitor).
+[TarkovMonitor](https://github.com/the-hideout/TarkovMonitor). Availability
+corrections from
+[tarkov-data-overlay](https://github.com/tarkovtracker-org/tarkov-data-overlay).
 
 ## License
 

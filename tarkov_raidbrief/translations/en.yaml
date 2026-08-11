@@ -1,0 +1,55 @@
+---
+# Labels and help text for the add-on's Configuration tab. Without this file
+# Home Assistant shows the raw option keys.
+configuration:
+  tarkovtracker_token:
+    name: TarkovTracker API token
+    description: >-
+      Token from tarkovtracker.org (Settings -> API Tokens -> Create) with the
+      "get progression" permission. That is the only permission needed; the
+      add-on never writes back. Leave empty to browse every task as if for a
+      maxed character.
+  game_mode:
+    name: Game mode
+    description: >-
+      Which mode's task set and progress to show. "regular" is PvP.
+  refresh_minutes:
+    name: Progress refresh interval (minutes)
+    description: >-
+      How often your TarkovTracker progress is polled in the background.
+      Polling never happens on page load, and never more than once a minute.
+  kappa_only:
+    name: Kappa tasks only
+    description: >-
+      Show only tasks required for the Kappa container. Also toggleable in the
+      UI without restarting.
+  gemini_api_key:
+    name: Google Gemini API key (optional)
+    description: >-
+      Enables opt-in AI route advice, generated only when you press the button.
+      Leaving this empty disables all AI features, so the add-on talks to
+      tarkov.dev and TarkovTracker only. Get a key at aistudio.google.com/apikey.
+  gemini_model:
+    name: Gemini model
+    description: >-
+      Which model writes the route advice. The flash models have a free tier.
+      Ignored when no API key is set.
+  excluded_maps:
+    name: Hidden maps
+    description: >-
+      Maps to leave out entirely, using the name shown in the UI (for example
+      "Icebreaker"). Case-insensitive. Useful for event maps or maps you have
+      not unlocked. Excluded before ranking, so a hidden map can never win the
+      "Run next" pick.
+  trader_levels:
+    name: Trader loyalty levels
+    description: >-
+      Your current loyalty level (1-4) per trader. TarkovTracker's API does not
+      expose these, so they have to be set by hand; they are used to hide tasks
+      you cannot unlock yet. Roughly half of all tasks carry a loyalty
+      requirement, so leaving these at 1 hides a lot.
+
+network:
+  8099/tcp: >-
+    Optional direct access to the API for debugging (/health, /api/brief). The
+    add-on is normally used through Ingress in the sidebar - leave this unset.

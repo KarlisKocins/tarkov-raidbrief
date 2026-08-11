@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup and troubleshooting
+    url: https://github.com/KarlisKocins/tarkov-raidbrief/blob/main/tarkov_raidbrief/DOCS.md#troubleshooting
+    about: Every banner the add-on can show, and what to do about it.
+  - name: Tasks won't load at all
+    url: https://github.com/KarlisKocins/tarkov-raidbrief#data-sources--read-this-if-tasks-wont-load
+    about: tarkov.dev's GraphQL API is down; read this before filing.
+  - name: Wrong task data (names, XP, requirements)
+    url: https://github.com/tarkovtracker-org/tarkov-data-overlay/issues
+    about: Availability corrections live in the community data overlay, not here.

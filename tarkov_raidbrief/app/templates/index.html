@@ -18,6 +18,10 @@
 
 <header class="topbar">
   <div class="who">
+    {# Wordmark: under Ingress the sidebar already says "Raid Brief", but on the
+       direct port and in the companion app this is the only thing naming it. #}
+    <span class="brand">Raid Brief</span>
+    <span class="rule" aria-hidden="true"></span>
     {% if brief.player.has_token %}
       <span class="name">{{ brief.player.name }}</span>
       <span class="chip lvl">Lv {{ brief.player.level }}</span>
@@ -103,7 +107,7 @@
 
     {# CARRY IN is the primary block: it is the thing you act on while packing. #}
     <section class="block primary">
-      <h2>Carry in <span class="n">{{ m.carry|length }}</span>
+      <h2>Carry in <span class="n">{{ "%02d"|format(m.carry|length) }}</span>
         <button type="button" class="clear" data-clear="{{ m.normalized_name or m.name }}">clear</button>
       </h2>
       {% if m.carry %}
@@ -121,7 +125,9 @@
        their own block and their own checkboxes. #}
     {% if m.keys %}
     <section class="block keys">
-      <h2>Keys <span class="n">{{ m.keys|length }}</span></h2>
+      <h2>Keys <span class="n">{{ "%02d"|format(m.keys|length) }}</span>
+        <span class="hint">secure container</span>
+      </h2>
       <ul class="check">
         {% for item in m.keys %}
           <li class="key"><label><input type="checkbox" value="key:{{ item }}"><span>{{ item }}</span></label></li>
@@ -131,8 +137,8 @@
     {% endif %}
 
     {% if m.loot %}
-    <section class="block">
-      <h2>Bring out <span class="n">{{ m.loot|length }}</span></h2>
+    <section class="block out">
+      <h2>Bring out <span class="n">{{ "%02d"|format(m.loot|length) }}</span></h2>
       <ul class="plain">
         {% for item in m.loot %}
           <li>{{ item }}</li>

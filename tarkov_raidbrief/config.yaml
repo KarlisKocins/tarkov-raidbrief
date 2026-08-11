@@ -1,11 +1,13 @@
 ---
 name: Tarkov Raid Brief
 slug: tarkov_raidbrief
-version: "1.4.0"
+version: "1.5.0"
 description: >-
-  Per-map Escape from Tarkov raid brief: what to carry in, what to loot,
-  and what to do, driven by your live TarkovTracker progress.
+  Per-map Escape from Tarkov raid brief - what to carry in, which keys you
+  need, what to bring out and what to do - built from your live TarkovTracker
+  progress and tarkov.dev task data.
 url: https://github.com/KarlisKocins/tarkov-raidbrief
+stage: stable
 arch:
   - aarch64
   - amd64

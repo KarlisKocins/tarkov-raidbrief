@@ -3,6 +3,12 @@
 Per-map "what do I bring?" for Escape from Tarkov, driven by your live
 TarkovTracker progress. Open it from the sidebar while you're packing.
 
+For each map you get four blocks — **CARRY IN**, **KEYS**, **BRING OUT** and
+**DO** — assembled from the tasks you can actually take right now, plus a
+ranked **"Run next"** suggestion. Task data comes from tarkov.dev, progress from
+TarkovTracker; the add-on is read-only and uses public APIs only. No game
+memory reading, no injection, no in-game overlay.
+
 ## Setup
 
 1. Get a token at [tarkovtracker.org](https://tarkovtracker.org) →
@@ -20,13 +26,33 @@ character, with a banner saying so.
 
 ## Options
 
-| Option | Meaning |
-|---|---|
-| `tarkovtracker_token` | Your API token with `get progression`. |
-| `game_mode` | `regular` or `pve`. Selects both the task set and which progress to read. |
-| `refresh_minutes` | Background poll interval for TarkovTracker (5–1440). Never faster than once a minute. |
-| `kappa_only` | Show only Kappa-required tasks. Also toggleable in the UI. |
-| `trader_levels.*` | Loyalty level 1–4 per trader. |
+| Option | Default | Meaning |
+|---|---|---|
+| `tarkovtracker_token` | — | Your API token with `get progression`. |
+| `game_mode` | `regular` | `regular` (PvP) or `pve`. Selects both the task set and which progress to read. |
+| `refresh_minutes` | `60` | Background poll interval for TarkovTracker (5–1440). Never faster than once a minute. |
+| `kappa_only` | `false` | Show only Kappa-required tasks. Also toggleable in the UI. |
+| `trader_levels.*` | `1` | Loyalty level 1–4 per trader. |
+| `excluded_maps` | `[]` | Maps to hide entirely, e.g. `Icebreaker`. Hidden before ranking, so they can't win "Run next". |
+| `gemini_api_key` | — | Optional. Enables AI route advice. Empty = no AI and no third-party calls. |
+| `gemini_model` | `gemini-2.5-flash` | Which Gemini model writes the advice. The flash models have a free tier. |
+
+## AI route advice (optional)
+
+Off unless you set `gemini_api_key`. It adds a per-map route briefing and a
+one-line explanation of the "Run next" pick, and:
+
+- **only generates when you press the button** — never on startup, on the
+  poller, or on page load, so it cannot burn quota unattended. Answers are
+  cached against your current tasks; *Regenerate* forces a fresh call.
+- **can never touch your packing lists.** The advice sits in a labelled block
+  below CARRY IN / KEYS / BRING OUT and cannot alter them, so a hallucinated
+  key can't end up on your checklist. The lists come from live game data only.
+
+The "Run next" ranking itself is not AI — it's a deterministic score shown with
+its breakdown on screen. Note that enabling this sends your task progress and
+player level to Google; leave the key empty to keep the add-on talking to
+tarkov.dev and TarkovTracker only.
 
 ## Using it
 

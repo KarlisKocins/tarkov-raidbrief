@@ -1,32 +1,88 @@
-/* Mobile-first, dark, tuned to sit next to Home Assistant's own panels. */
+/* Mobile-first, dark, tuned to sit next to Home Assistant's own panels.
+
+   Visual direction: "field issue" — a printed briefing sheet. Squared corners,
+   hairline rules, uppercase letterspaced labels, khaki on near-black olive.
+   Section colour is semantic and load-bearing: khaki = carry in, steel = keys,
+   olive = bring out, lilac = AI. Those four hues are the fastest way to tell
+   the authoritative packing lists apart from generated advice, so don't
+   collapse them into one accent.
+
+   Type is a font *stack*, deliberately: IBM Plex Mono and Saira Condensed are
+   the intended faces, but the add-on must not call out to a font CDN (it
+   promises tarkov.dev + TarkovTracker only, and the HA webview is often on a
+   flaky connection), so both degrade to system faces. */
 
 :root {
-  --bg: #111214;
-  --surface: #1b1d21;
-  --surface-2: #23262b;
-  --line: #303540;
-  --text: #e3e5e8;
-  --dim: #9aa1ab;
-  --accent: #03a9f4;
-  --carry: #ffb648;
-  --loot: #5ed69a;
-  --key: #c792ea;
-  --ai: #b39ddb;
-  --danger: #ef5350;
-  --radius: 10px;
+  --canvas: #0a0a09;
+  --bg: #14120d;
+  --surface: #1a170f;
+  --line: #3a331f;
+  --line-dim: #26210f;
+
+  --text: #d6cdb8;
+  --text-bright: #e8e0cc;
+  --text-title: #f0e6cd;
+  --dim: #8a8267;
+  --dimmer: #6b6147;
+
+  /* carry in / primary */
+  --accent: #c8a95a;
+  --accent-line: #59502f;
+
+  /* keys — secure container */
+  --key: #8fa8c0;
+  --key-text: #a9bfd2;
+  --key-line: #3d4a56;
+  --key-dim: #5c6a76;
+
+  /* bring out — loot */
+  --loot: #a3b573;
+  --loot-text: #b7c48f;
+  --loot-line: #4a5233;
+
+  /* generated advice — never a packing list */
+  --ai: #a596b8;
+  --ai-line: #4a4155;
+
+  --danger: #d1705f;
+
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", "SF Mono",
+               Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --font-display: "Saira Condensed", "Oswald", "Archivo Narrow", "Arial Narrow",
+                  ui-sans-serif, system-ui, sans-serif;
+
+  /* Kept as a variable rather than deleted: the whole design is square, and
+     one place to change it back beats hunting radii. */
+  --radius: 0;
 }
 
 * { box-sizing: border-box; }
+
+/* The briefing sheet (body) sits on a darker desk (html). On a phone the sheet
+   is the whole screen; on a second monitor it becomes a bordered 1240px page. */
+html { background: var(--canvas); }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.45 var(--font-mono);
   padding-bottom: env(safe-area-inset-bottom);
 }
 
 a { color: var(--accent); }
+a:hover { color: #e0c47c; }
+
+/* Uppercase + tracking is the house label style; used by chips, block
+   headers, buttons and task meta. */
+.topbar .brand,
+.chip,
+button,
+.toggle,
+.block h2,
+.recommend h2,
+.task .meta,
+.tl b { text-transform: uppercase; letter-spacing: .1em; }
 
 /* ---------- top bar ---------- */
 
@@ -39,55 +95,86 @@ a { color: var(--accent); }
   gap: 6px 10px;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  padding: 9px 14px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
 
-.who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.who .name { font-weight: 600; }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.who .name { font-weight: 600; color: var(--text-bright); }
+
+.topbar .brand {
+  font: 700 17px var(--font-display);
+  letter-spacing: .14em;
+  color: var(--accent);
+}
+/* Hairline divider between the wordmark and the player identity. */
+.topbar .rule {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  flex: none;
+}
 
 .chip {
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--surface-2);
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
   color: var(--dim);
 }
-.chip.usec { color: #7fb4ff; }
-.chip.bear { color: #ffa06b; }
-.chip.lvl { color: var(--text); }
+.chip.usec { color: var(--key); border-color: var(--key-line); }
+.chip.bear { color: #c98f6b; border-color: #5a4436; }
+.chip.lvl  { color: var(--accent); border-color: var(--accent-line); }
 
-.ages { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim); }
+.ages {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
 
 button, .toggle {
-  font: inherit;
-  font-size: 13px;
+  font: 600 12px var(--font-mono);
   cursor: pointer;
   border: 1px solid var(--line);
-  background: var(--surface-2);
-  color: var(--text);
+  background: transparent;
+  color: var(--dim);
   border-radius: var(--radius);
   padding: 6px 12px;
   text-decoration: none;
 }
+button:hover, .toggle:hover { color: var(--text-bright); border-color: var(--accent-line); }
 button:active { transform: translateY(1px); }
+
+/* Refresh is the only filled button on the page — it is the one control that
+   reaches out to both upstreams. */
+#refresh {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  padding: 6px 14px;
+}
+#refresh:hover { background: #e0c47c; border-color: #e0c47c; color: var(--bg); }
+#refresh:disabled { opacity: .6; cursor: default; }
 
 /* ---------- banners ---------- */
 
 .banner {
-  margin: 8px 12px 0;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  font-size: 13px;
+  margin: 8px 14px 0;
+  padding: 9px 12px;
+  font-size: 12px;
+  border: 1px solid var(--line);
   border-left: 3px solid var(--dim);
   background: var(--surface);
 }
 .banner.auth      { border-left-color: var(--danger); }
-.banner.ratelimit { border-left-color: var(--carry); }
-.banner.stale     { border-left-color: var(--carry); }
+.banner.ratelimit { border-left-color: var(--accent); }
+.banner.stale     { border-left-color: var(--accent); }
 .banner.degraded  { border-left-color: var(--key); }
 .banner.upstream  { border-left-color: var(--danger); }
 .banner.ai        { border-left-color: var(--ai); }
@@ -95,27 +182,48 @@ button:active { transform: translateY(1px); }
 /* ---------- recommendation ---------- */
 
 .recommend {
-  margin: 10px 12px 0;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  background: linear-gradient(135deg, rgba(3, 169, 244, .14), rgba(3, 169, 244, .04));
-  border: 1px solid rgba(3, 169, 244, .35);
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  margin: 12px 14px 0;
+  padding: 10px 16px 10px 24px;
+  border: 1px solid var(--accent-line);
+  background: linear-gradient(90deg, rgba(200, 169, 90, .10), rgba(200, 169, 90, .02));
   cursor: pointer;
+}
+/* Hazard stripe: this is the one card that tells you where to go. */
+.recommend::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 8px;
+  background: repeating-linear-gradient(45deg, var(--accent) 0 6px, var(--bg) 6px 12px);
 }
 .recommend h2 {
   margin: 0;
   font-size: 11px;
-  letter-spacing: .09em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--accent);
 }
-.recommend .pick { margin: 2px 0 0; font-size: 21px; font-weight: 700; }
-.recommend .why { margin: 2px 0 0; font-size: 12px; color: var(--dim); }
-.recommend .ai-line {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--text);
-  border-top: 1px solid rgba(3, 169, 244, .25);
+.recommend h2::after { content: " \25B8"; }
+.recommend .pick {
+  margin: 0;
+  font: 700 25px var(--font-display);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-title);
+}
+.recommend .why { margin: 0; font-size: 12px; color: #a89e82; }
+
+.recommend .ai-line { margin: 0 0 0 auto; font-size: 13px; color: var(--text); }
+/* Once advice exists it is prose, not a chip — give it the full width and put
+   it below the headline row. */
+.recommend .ai-line:has(.ai-body) {
+  flex: 1 0 100%;
+  margin: 6px 0 0;
+  border-top: 1px solid var(--accent-line);
   padding-top: 8px;
 }
 .recommend .ai-line::before {
@@ -127,33 +235,35 @@ button:active { transform: translateY(1px); }
   margin-right: 6px;
   vertical-align: 1px;
 }
+.recommend .ai-line:not(:has(.ai-body))::before { display: none; }
+.recommend .ai-body { margin: 0; }
 
 /* ---------- AI block ---------- */
 
-.block.ai { border-left: 3px solid var(--ai); }
+.block.ai { border-color: var(--ai-line); border-left: 3px solid var(--ai); }
 .block.ai h2 { color: var(--ai); }
+.block.ai h2::before { content: "\25C7  "; }
 .block.ai .tag {
   margin-left: auto;
   font-size: 9px;
   font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 6px;
   background: var(--ai);
   color: #1b1030;
   letter-spacing: .06em;
 }
-.block.ai p { margin: 0 0 8px; font-size: 14px; line-height: 1.5; }
+.block.ai p { margin: 0 0 8px; font-size: 13px; line-height: 1.55; }
 .block.ai .ai-body:empty { display: none; }
 
 .ai-actions { display: flex; align-items: center; gap: 10px; }
 .ai-status { font-size: 12px; color: var(--danger); }
 
 .ai-ask {
-  border-color: var(--ai);
-  color: var(--ai);
+  border-color: var(--accent-line);
+  color: var(--accent);
   background: transparent;
-  font-size: 13px;
 }
+.ai-ask:hover { color: #e0c47c; border-color: var(--accent); }
 .ai-ask:disabled { opacity: .75; cursor: default; }
 
 /* Three dots that cycle while a request is in flight. */
@@ -177,10 +287,12 @@ button:active { transform: translateY(1px); }
 .block.ai .disclaimer {
   margin: 10px 0 0;
   padding-top: 8px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--ai-line);
   font-size: 11px;
   color: var(--dim);
-  line-height: 1.4;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 /* ---------- controls ---------- */
@@ -188,137 +300,268 @@ button:active { transform: translateY(1px); }
 .controls {
   display: flex;
   gap: 8px;
-  padding: 10px 12px;
-  align-items: center;
+  padding: 12px 14px;
+  align-items: stretch;
 }
-.maps { flex: 1; min-width: 0; }
+.maps { flex: 1; min-width: 0; display: flex; }
 
 select {
   width: 100%;
-  font: inherit;
-  padding: 9px 10px;
-  color: var(--text);
-  background: var(--surface-2);
+  font: 14px var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 8px 30px 8px 12px;
+  color: var(--text-bright);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  /* Inline SVG chevron — matches the design's small caret and, being a data
+     URI, adds no network request. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a8267'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
 }
+select:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 
-.toggle.on { background: var(--accent); border-color: var(--accent); color: #04222e; font-weight: 600; }
+.toggle { display: flex; align-items: center; padding: 8px 14px; }
+.toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
 
 /* ---------- map ---------- */
 
-main { padding: 0 12px 32px; }
+main { padding: 0 14px 32px; }
 
 .map-title {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 6px 0 12px;
-  font-size: 22px;
+  gap: 6px 12px;
+  margin: 4px 0 10px;
+  font: 700 28px var(--font-display);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-title);
 }
-.map-title .count { font-size: 12px; color: var(--dim); font-weight: 400; }
-.map-title .maplink { font-size: 12px; margin-left: auto; }
+.map-title .count {
+  font: 12px var(--font-mono);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.map-title .maplink {
+  font: 12px var(--font-mono);
+  margin-left: auto;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  text-decoration: none;
+}
 
 .block {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .block h2 {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 8px;
+  margin: 0;
+  padding: 7px 12px;
   font-size: 12px;
-  letter-spacing: .09em;
-  text-transform: uppercase;
+  font-weight: 700;
   color: var(--dim);
+  border-bottom: 1px solid var(--line);
 }
-.block h2 .n { color: var(--text); }
-.block h2 .clear { margin-left: auto; padding: 3px 8px; font-size: 11px; }
-
-/* CARRY IN is the one thing you act on while packing, so it gets the weight. */
-.block.primary {
-  border-color: var(--carry);
-  border-left-width: 3px;
-  background: linear-gradient(180deg, rgba(255, 182, 72, .06), transparent 60px), var(--surface);
+.block h2 .n { color: var(--text-bright); font-weight: 400; letter-spacing: 0; }
+.block h2 .clear { margin-left: auto; padding: 2px 8px; font-size: 11px; font-weight: 400; }
+.block h2 .hint {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--key-dim);
 }
-.block.primary h2 { color: var(--carry); }
 
-.block.keys { border-left: 3px solid var(--key); }
-.block.keys h2 { color: var(--key); }
+/* Everything below a block header shares this inset. */
+.block > ul,
+.block > .ai-body,
+.block > .ai-actions,
+.block > .disclaimer,
+.block > .none { padding-left: 12px; padding-right: 12px; }
+.block > ul { padding-top: 2px; padding-bottom: 6px; }
+.block > .none { padding-top: 10px; padding-bottom: 10px; }
+.block > .ai-body,
+.block > .ai-actions { padding-top: 10px; }
+.block > .disclaimer { padding-bottom: 10px; }
+
+/* CARRY IN is the one thing you act on while packing, so it gets the weight:
+   khaki border plus a hazard band across its header. */
+.block.primary { border-color: var(--accent-line); }
+.block.primary h2 {
+  color: var(--accent);
+  border-bottom-color: var(--accent-line);
+  background: repeating-linear-gradient(45deg,
+    rgba(200, 169, 90, .16) 0 8px, rgba(200, 169, 90, .05) 8px 16px);
+}
+
+.block.keys { border-color: var(--key-line); }
+.block.keys h2 { color: var(--key); border-bottom-color: var(--key-line); }
+
+.block.out { border-color: var(--loot-line); }
+.block.out h2 { color: var(--loot); border-bottom-color: var(--loot-line); }
 
 ul.check, ul.plain, ul.do { list-style: none; margin: 0; padding: 0; }
 
-ul.check li + li { border-top: 1px solid var(--line); }
+ul.check li + li,
+ul.plain li + li { border-top: 1px solid var(--line-dim); }
 ul.check label {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 2px;
+  padding: 8px 0;
   cursor: pointer;
   /* Comfortable thumb target — this gets used one-handed in the stash. */
   min-height: 40px;
 }
-ul.check input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+ul.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  flex: none;
+}
 ul.check em { margin-left: auto; font-style: normal; font-size: 10px; color: var(--key); text-transform: uppercase; }
 ul.check input:checked + span { color: var(--dim); text-decoration: line-through; }
-ul.check li.key span { color: var(--key); }
 
-ul.plain li { padding: 6px 2px; color: var(--loot); }
-ul.plain li + li { border-top: 1px solid var(--line); }
+.block.keys ul.check input { accent-color: var(--key); }
+.block.keys ul.check li span { color: var(--key-text); }
+
+ul.plain li { padding: 8px 0; color: var(--loot-text); }
 
 .none { margin: 0; color: var(--dim); font-size: 13px; }
-.empty { margin: 24px 12px; color: var(--dim); }
+.empty { margin: 24px 14px; color: var(--dim); }
 
 /* ---------- tasks ---------- */
 
-.task { padding: 10px 0; border-top: 1px solid var(--line); }
-.task:first-of-type { border-top: 0; }
-.task h3 { margin: 0 0 3px; font-size: 15px; font-weight: 600; }
-.task h3 a { text-decoration: none; }
+.block.tasks h2 { color: var(--dim); }
+
+.task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: baseline;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-dim);
+}
+.task:last-child { border-bottom: 0; }
+.task h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+.task h3 a { color: var(--text-bright); text-decoration: none; }
+.task h3 a:hover { color: var(--accent); }
 
 .kappa {
   display: inline-block;
   margin-left: 6px;
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
+  padding: 0 5px;
   background: var(--accent);
-  color: #04222e;
-  vertical-align: middle;
+  color: var(--bg);
+  vertical-align: 1px;
 }
 
-.task .meta { display: flex; gap: 10px; font-size: 11px; color: var(--dim); margin-bottom: 6px; }
+.task .meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dim);
+  margin: 2px 0 4px;
+}
+/* Middot separators, so the meta line reads as one unit. */
+.task .meta span + span::before { content: "\00B7 "; color: var(--line); }
 
-.tl { margin: 3px 0; font-size: 13px; }
-.tl b { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; margin-right: 5px; }
-.tl.carry b { color: var(--carry); }
-.tl.loot  b { color: var(--loot); }
+.tl { margin: 2px 0; font-size: 12px; }
+.tl b { font-size: 10px; font-weight: 700; margin-right: 5px; }
+.tl.carry b { color: var(--accent); }
+.tl.loot { color: var(--loot-text); }
+.tl.loot b { color: var(--loot); }
 
 ul.do li {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--dim);
   padding: 2px 0 2px 14px;
   position: relative;
 }
-ul.do li::before { content: "·"; position: absolute; left: 4px; color: var(--line); }
+ul.do li::before { content: "\00B7"; position: absolute; left: 4px; color: var(--accent-line); }
 
-footer { padding: 16px 12px 28px; font-size: 11px; color: var(--dim); text-align: center; }
-footer .hidden-note { margin: 0 0 6px; }
-footer code { font-family: ui-monospace, monospace; font-size: 10px; }
+footer {
+  padding: 14px 14px 28px;
+  font-size: 11px;
+  color: var(--dimmer);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+footer .hidden-note { margin: 0 0 6px; text-transform: none; letter-spacing: 0; }
+footer code { font-family: var(--font-mono); font-size: 10px; }
 
 /* ---------- wider screens (second monitor) ---------- */
 
 @media (min-width: 820px) {
-  main { max-width: 1100px; margin: 0 auto; }
-  .map-title { font-size: 26px; }
-  /* Carry / keys / loot read side by side; the task list stays full width. */
-  .map { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; align-items: start; }
-  .map-title, .block.tasks { grid-column: 1 / -1; }
+  body {
+    font-size: 13px;
+    max-width: 1240px;
+    margin: 0 auto;
+    border-inline: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar { padding-inline: 16px; }
+  main { padding: 0 16px 24px; }
+
+  .map-title { font-size: 34px; }
+
+  /* Carry / keys / out read side by side, exactly the order you pack in; the
+     task list and any advice stay full width below them. */
+  .map {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 0 10px;
+    align-items: start;
+  }
+  /* `display` here beats the UA rule for the `hidden` attribute that app.js and
+     the template use to show one map at a time, so restate it — without this
+     every map renders stacked. */
+  .map[hidden] { display: none; }
+  .map-title, .block.tasks, .block.ai { grid-column: 1 / -1; }
+
+  /* A map can legitimately have no keys, or nothing to loot. Reflow rather
+     than leaving a third of the row empty. */
+  .map:not(:has(.block.keys)) .block.out { grid-column: 2 / -1; }
+  .map:not(:has(.block.out)) .block.keys { grid-column: 2 / -1; }
+  .map:not(:has(.block.keys)):not(:has(.block.out)) .block.primary { grid-column: 1 / -1; }
+
+  /* Mouse and keyboard, not thumbs: tighten the rows back to the sheet
+     density the design calls for. */
+  ul.check label { min-height: 0; padding: 7px 0; }
+  ul.check input { width: 15px; height: 15px; }
+  ul.plain li { padding: 7px 0; }
+
+  /* Two task columns, and the trader/level/XP meta pulls right onto the
+     title's baseline. */
+  .block.tasks { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+  .block.tasks h2 { grid-column: 1 / -1; }
+  .task { grid-template-columns: minmax(0, 1fr) auto; }
+  .task h3 { grid-column: 1; }
+  .task .meta { grid-column: 2; justify-self: end; margin: 0; }
+  .task .tl, .task ul.do { grid-column: 1 / -1; }
+  .task:nth-last-child(-n+2) { border-bottom: 0; }
 }
