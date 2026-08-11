@@ -289,6 +289,14 @@ class TarkovJson:
                     for req in task.get("taskRequirements") or []
                     if isinstance(req, dict)
                 ],
+                # Only the taskStatus conditions matter downstream: "fails when
+                # task X is complete" marks X as a mutually exclusive branch.
+                "failConditions": [
+                    {"type": "taskStatus", "task": {"id": cond.get("task")},
+                     "status": cond.get("status") or []}
+                    for cond in task.get("failConditions") or []
+                    if isinstance(cond, dict) and cond.get("type") == "taskStatus"
+                ],
                 "traderRequirements": [
                     {
                         "trader": {

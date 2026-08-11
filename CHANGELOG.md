@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.3.0
+
+Task availability now matches TarkovTracker. Previously the add-on could list
+quests the tracker (and the game) still had locked — most visibly the
+mutually exclusive Chemical - Part 3 endings: Big Customer showed up for any
+level 11 character, even with the Chemical questline untouched or already
+resolved the other way.
+
+- **Prerequisite graph, TarkovTracker-style.** A requirement of status
+  "active" (Big Customer needs Chemical - Part 4 *accepted*, not completed —
+  you hand the flash drive to Prapor instead of Skier) used to be ignored.
+  The task now inherits the required quest's own prerequisites, so it
+  unlocks at the same moment that quest does, exactly as on the tracker.
+- **Mutually exclusive branches.** `failConditions` are now fetched, and a
+  task disappears once any quest that would fail it is completed — even if
+  the tracker never recorded the fail, which it can't when progress is
+  written by other integrations.
+- **Failed-prerequisite requirements.** Quests that require another quest to
+  have been *failed* are now hidden until it actually was.
+- A failed prerequisite counts as finished (TarkovTracker records fails as
+  completions too), so quests downstream of a branch stay reachable
+  whichever ending you picked.
+
+The prerequisite gating applies to already-cached task data immediately; the
+branch (`failConditions`) data arrives with the next task refresh — hit
+Refresh once after updating if you don't want to wait for the daily one.
+
 ## 1.2.1
 
 Fixes the 1.2.0 UI appearing broken after the update: browsers (and the HA

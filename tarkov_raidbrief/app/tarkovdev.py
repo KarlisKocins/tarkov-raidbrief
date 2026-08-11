@@ -40,7 +40,10 @@ _KEYED = ("Basic", "Extract", "Item", "Mark", "QuestItem", "Shoot", "UseItem")
 
 # Optional blocks, listed in the order they get sacrificed. Least valuable first;
 # requiredKeys is last because the KEYS panel is the whole point of the carry list.
-DEGRADE_ORDER = ("questItemLocations", "shootDetail", "zones", "requiredKeys")
+# failConditions goes first: losing it only means a dead quest branch may linger
+# in the list until the tracker records it as failed.
+DEGRADE_ORDER = ("failConditions", "questItemLocations", "shootDetail", "zones",
+                 "requiredKeys")
 ALL_BLOCKS = frozenset(DEGRADE_ORDER)
 
 
@@ -72,6 +75,15 @@ def build_query(enabled: frozenset[str] = ALL_BLOCKS, game_mode: str | None = No
         else ""
     )
 
+    # Only the taskStatus conditions are consumed (mutually exclusive branch
+    # detection in brief.py), so nothing else is asked of the other objective
+    # types the failConditions list can carry.
+    fail_conditions = (
+        "failConditions { id type ... on TaskObjectiveTaskStatus { task { id } status } }"
+        if "failConditions" in enabled
+        else ""
+    )
+
     arg = f"(gameMode: {game_mode})" if game_mode else ""
 
     # TaskObjectiveBasic has nothing beyond the interface fields except the two
@@ -100,6 +112,7 @@ def build_query(enabled: frozenset[str] = ALL_BLOCKS, game_mode: str | None = No
     map {{ name normalizedName }}
     taskRequirements {{ task {{ id name }} status }}
     traderRequirements {{ trader {{ normalizedName }} requirementType compareMethod value }}
+    {fail_conditions}
     objectives {{
       id
       type

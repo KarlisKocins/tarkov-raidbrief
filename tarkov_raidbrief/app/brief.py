@@ -104,10 +104,78 @@ def _symbol(compare_method: str | None) -> str:
 # --------------------------------------------------------------------------
 # availability
 # --------------------------------------------------------------------------
+#
+# Mirrors TarkovTracker (stores/progress.js `unlockedTasks` +
+# composables/tarkovdata.js), which gates on a prerequisite *graph* rather
+# than reading taskRequirements directly:
+#
+# * A requirement whose status list does NOT include "active" is an edge
+#   required-task -> task: that parent must be finished first.
+# * A requirement whose status includes "active" means "hand this in instead"
+#   (the Chemical Part 4 / Big Customer / Out of Curiosity branch): the task
+#   unlocks the moment the required task does, so it inherits that task's own
+#   parents instead of depending on it.
+# * A requirement of exactly ["failed"] additionally demands the prerequisite
+#   was failed, not completed.
+#
+# TarkovTracker's `setTaskFailed` writes `complete: true, failed: true`, so a
+# failed parent satisfies an edge there - branch children stay reachable
+# whichever way the branch went. `statuses()` maps those records to "failed",
+# hence parents accept "complete" or "failed" below.
+#
+# Mutually exclusive branches are not part of TarkovTracker's unlock check:
+# the site marks the alternatives failed at completion time, in the write
+# path. We are read-only, so the equivalent is derived from `failConditions`
+# ("fails when task X is complete"): once any alternative is complete, the
+# task is treated as failed even if the tracker never recorded it.
+
+def unlock_graph(tasks: list[dict]) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Per task id: parent ids that must be finished, and alternative ids
+    whose completion kills the task."""
+    ids = {t["id"] for t in tasks if t.get("id")}
+    parents: dict[str, set[str]] = {tid: set() for tid in ids}
+    inherits: list[tuple[str, str]] = []
+
+    for task in tasks:
+        tid = task.get("id")
+        if not tid:
+            continue
+        for req in task.get("taskRequirements") or []:
+            rid = (req.get("task") or {}).get("id")
+            if not rid or rid not in ids:
+                continue
+            wanted = {str(s).lower() for s in (req.get("status") or [])}
+            if "active" in wanted:
+                inherits.append((tid, rid))
+            else:
+                parents[tid].add(rid)
+
+    # Second pass, like TarkovTracker: inherit from the base graph, so the
+    # required task's own "active" inheritance never chains through.
+    for tid, rid in inherits:
+        parents[tid].update(parents.get(rid) or ())
+
+    alternatives: dict[str, set[str]] = defaultdict(set)
+    for task in tasks:
+        tid = task.get("id")
+        if not tid:
+            continue
+        for cond in task.get("failConditions") or []:
+            if not isinstance(cond, dict) or cond.get("type") != "taskStatus":
+                continue
+            other = (cond.get("task") or {}).get("id")
+            if other and "complete" in {str(s).lower() for s in (cond.get("status") or [])}:
+                alternatives[tid].add(other)
+
+    return parents, alternatives
+
 
 def is_available(task: dict, statuses: dict[str, str], level: int,
-                 faction: str, trader_levels: dict[str, int]) -> bool:
-    if statuses.get(task.get("id")) in ("complete", "failed", "invalid"):
+                 faction: str, trader_levels: dict[str, int],
+                 parents: dict[str, set[str]],
+                 alternatives: dict[str, set[str]]) -> bool:
+    tid = task.get("id")
+    if statuses.get(tid) in ("complete", "failed", "invalid"):
         return False
 
     if (task.get("minPlayerLevel") or 0) > level:
@@ -117,12 +185,18 @@ def is_available(task: dict, statuses: dict[str, str], level: int,
     if task_faction and task_faction not in ("Any", faction):
         return False
 
+    for pid in parents.get(tid) or ():
+        if statuses.get(pid) not in ("complete", "failed"):
+            return False
+
     for req in task.get("taskRequirements") or []:
         wanted = {str(s).lower() for s in (req.get("status") or [])}
-        have = statuses.get((req.get("task") or {}).get("id"), "incomplete")
-        # An "active" or "failed" prerequisite doesn't gate us the way a
-        # "complete" one does, so only hard-gate on completion.
-        if "complete" in wanted and have != "complete":
+        if wanted == {"failed"}:
+            if statuses.get((req.get("task") or {}).get("id")) != "failed":
+                return False
+
+    for alt in alternatives.get(tid) or ():
+        if statuses.get(alt) == "complete":
             return False
 
     for req in task.get("traderRequirements") or []:
@@ -297,10 +371,13 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
         lambda: {"normalized": "", "tasks": [], "carry": set(), "keys": set(), "loot": set()}
     )
 
+    parents, alternatives = unlock_graph(tasks)
+
     for task in tasks:
         if kappa_only and not task.get("kappaRequired"):
             continue
-        if not is_available(task, statuses, level, faction, trader_levels):
+        if not is_available(task, statuses, level, faction, trader_levels,
+                            parents, alternatives):
             continue
 
         # A task lands on a map only if it has an objective to do there, and
