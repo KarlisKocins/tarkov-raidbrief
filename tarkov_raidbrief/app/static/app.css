@@ -310,6 +310,8 @@ ul.do li {
 ul.do li::before { content: "·"; position: absolute; left: 4px; color: var(--line); }
 
 footer { padding: 16px 12px 28px; font-size: 11px; color: var(--dim); text-align: center; }
+footer .hidden-note { margin: 0 0 6px; }
+footer code { font-family: ui-monospace, monospace; font-size: 10px; }
 
 /* ---------- wider screens (second monitor) ---------- */
 

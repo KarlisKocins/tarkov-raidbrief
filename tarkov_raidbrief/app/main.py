@@ -22,6 +22,7 @@ by reproducing it. Set `root_path` only if you also stop stripping.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -159,10 +160,15 @@ class State:
         # Hidden maps are dropped before scoring, so an event map you cannot
         # enter never wins the recommendation. A task that also appears on a
         # visible map still shows up there.
+        hidden_maps: list[str] = []
         if settings.excluded_maps:
-            maps = [
-                m for m in maps if not settings.is_excluded(m.name, m.normalized_name)
-            ]
+            kept = []
+            for m in maps:
+                if settings.is_excluded(m.name, m.normalized_name):
+                    hidden_maps.append(m.name)
+                else:
+                    kept.append(m)
+            maps = kept
 
         warnings: list[Warning_] = []
         if self.tasks_warning:
@@ -231,6 +237,7 @@ class State:
         now = time.time()
         return Brief(
             maps=maps,
+            hidden_maps=hidden_maps,
             recommendation=recommendation,
             ai_enabled=self.gemini.enabled,
             player=PlayerInfo(
@@ -301,6 +308,23 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+
+
+def _static_version() -> str:
+    """Content hash of the static assets, used as a ?v= cache-buster.
+
+    Browsers heuristically cache /static responses (there is no Cache-Control
+    header), and the HA webview held on to 1.1.0's app.js across an add-on
+    update - new HTML, old JS, so new buttons had no handlers and did nothing.
+    A hash tied to the file contents changes exactly when the files do.
+    """
+    h = hashlib.md5()
+    for name in ("app.css", "app.js"):
+        h.update((HERE / "static" / name).read_bytes())
+    return h.hexdigest()[:8]
+
+
+STATIC_V = _static_version()
 
 
 def _age(seconds: float | None) -> str:
@@ -430,5 +454,5 @@ async def index(
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"brief": brief},
+        context={"brief": brief, "static_v": STATIC_V},
     )

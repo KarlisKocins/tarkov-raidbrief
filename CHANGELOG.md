@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.1
+
+Fixes the 1.2.0 UI appearing broken after the update: browsers (and the HA
+companion app's webview) had cached 1.1.0's `app.js`, which predates the AI
+feature, so the new buttons rendered but had no click handlers — pressing
+them did nothing, with no loading animation and no error. The ingress view
+and the direct-port view could even disagree, since they cache separately.
+
+- Static assets are now served with a content-hash `?v=` parameter, so every
+  add-on update forces the browser to fetch fresh CSS/JS. This can't recur.
+- If a map is hidden via `excluded_maps`, the page footer now says so
+  ("Hidden by excluded_maps: Icebreaker"), so you can see the setting is
+  live. Reminder: the setting itself lives in the add-on **Configuration**
+  tab in Home Assistant, not in this web UI.
+
 ## 1.2.0
 
 - **Map exclusion.** New `excluded_maps` option hides maps you cannot enter —

@@ -157,6 +157,8 @@ class Recommendation:
 @dataclass
 class Brief:
     maps: list[MapBrief] = field(default_factory=list)
+    # Names dropped by `excluded_maps`, so the UI can say the setting is live.
+    hidden_maps: list[str] = field(default_factory=list)
     recommendation: Recommendation | None = None
     ai_enabled: bool = False
     player: PlayerInfo = field(default_factory=PlayerInfo)

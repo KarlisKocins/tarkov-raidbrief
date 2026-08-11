@@ -10,7 +10,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <title>Raid Brief</title>
-  <link rel="stylesheet" href="static/app.css">
+  {# ?v= is a content hash: it forces the webview to drop cached assets on
+     update, otherwise new buttons render with the old JS and do nothing. #}
+  <link rel="stylesheet" href="static/app.css?v={{ static_v }}">
 </head>
 <body>
 
@@ -196,11 +198,16 @@
 </main>
 
 <footer>
+  {% if brief.hidden_maps %}
+    <p class="hidden-note">
+      Hidden by <code>excluded_maps</code>: {{ brief.hidden_maps|join(', ') }}
+    </p>
+  {% endif %}
   Data from <a href="https://tarkov.dev" target="_blank" rel="noopener">tarkov.dev</a>
   and <a href="https://tarkovtracker.org" target="_blank" rel="noopener">TarkovTracker</a>.
   Read-only, public APIs only.
 </footer>
 
-<script src="static/app.js"></script>
+<script src="static/app.js?v={{ static_v }}"></script>
 </body>
 </html>
