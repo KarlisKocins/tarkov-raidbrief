@@ -1,5 +1,13 @@
 # Tarkov Raid Brief — Home Assistant add-on repository
 
+[![Build add-on images](https://github.com/KarlisKocins/tarkov-raidbrief/actions/workflows/builder.yaml/badge.svg)](https://github.com/KarlisKocins/tarkov-raidbrief/actions/workflows/builder.yaml)
+[![GitHub release](https://img.shields.io/github/v/release/KarlisKocins/tarkov-raidbrief?include_prereleases&sort=semver)](https://github.com/KarlisKocins/tarkov-raidbrief/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Supports aarch64](https://img.shields.io/badge/aarch64-yes-green.svg)
+![Supports amd64](https://img.shields.io/badge/amd64-yes-green.svg)
+
+[![Add repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FKarlisKocins%2Ftarkov-raidbrief)
+
 "What do I bring to which map?" for Escape from Tarkov, on your phone or second
 monitor while you're in the stash picking a loadout.
 
@@ -308,3 +316,11 @@ map; it links out to tarkov.dev instead.
 Task data from [tarkov.dev](https://tarkov.dev). Progress from
 [TarkovTracker](https://tarkovtracker.org), fed by
 [TarkovMonitor](https://github.com/the-hideout/TarkovMonitor).
+
+## License
+
+[MIT](LICENSE) © Kārlis Kociņš.
+
+This project is a community tool and is not affiliated with or endorsed by
+Battlestate Games, tarkov.dev, or TarkovTracker. Escape from Tarkov is a
+trademark of Battlestate Games Limited.
