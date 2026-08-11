@@ -37,6 +37,24 @@
     }
   }
 
+  /* ---- "run next" card jumps to that map ---- */
+
+  var recommend = document.querySelector(".recommend[data-goto]");
+  if (recommend && select) {
+    recommend.addEventListener("click", function () {
+      var wanted = recommend.dataset.goto;
+      var target = sections.filter(function (s) {
+        var title = s.querySelector(".map-title");
+        return title && title.textContent.trim().indexOf(wanted) === 0;
+      })[0];
+      if (target) {
+        select.value = target.dataset.index;
+        show(target.dataset.index);
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  }
+
   /* ---- carry-in checkboxes, persisted per map ---- */
 
   function keyFor(map) { return STORE_PREFIX + map; }
@@ -81,6 +99,80 @@
       });
     }
   });
+
+  /* ---- AI, on demand only ----
+     Nothing here fires on load. The server never generates while rendering,
+     so text appears only because someone pressed a button. */
+
+  function renderParagraphs(container, text) {
+    container.textContent = "";
+    text.split("\n").forEach(function (para) {
+      if (!para.trim()) return;
+      var p = document.createElement("p");
+      p.textContent = para.trim();      // textContent, so model output can't inject HTML
+      container.appendChild(p);
+    });
+  }
+
+  function askAi(url, button, status, onText) {
+    button.disabled = true;
+    button.classList.add("loading");
+    var original = button.textContent;
+    button.textContent = "Thinking";
+    if (status) status.textContent = "";
+
+    fetch(url, { method: "POST", headers: { Accept: "application/json" } })
+      .then(function (r) {
+        return r.json().then(function (body) {
+          if (!r.ok) throw new Error(body.error || "HTTP " + r.status);
+          return body;
+        });
+      })
+      .then(function (body) {
+        onText(body.text);
+        button.textContent = "Regenerate";
+        if (status) status.textContent = "";
+      })
+      .catch(function (err) {
+        button.textContent = original;
+        if (status) status.textContent = err.message;
+      })
+      .then(function () {
+        button.disabled = false;
+        button.classList.remove("loading");
+      });
+  }
+
+  sections.forEach(function (section) {
+    var block = section.querySelector("[data-ai-map]");
+    if (!block) return;
+    var button = block.querySelector(".ai-ask");
+    var status = block.querySelector(".ai-status");
+    var body = block.querySelector(".ai-body");
+    if (!button) return;
+
+    button.addEventListener("click", function () {
+      // `force` once text already exists, so "Regenerate" really regenerates
+      // instead of handing back the cached copy.
+      var force = body.children.length > 0 ? "&force=true" : "";
+      askAi("api/ai/map?map=" + encodeURIComponent(block.dataset.aiMap) + force,
+            button, status, function (text) { renderParagraphs(body, text); });
+    });
+  });
+
+  var recBtn = document.querySelector("[data-ai-rec-btn]");
+  if (recBtn) {
+    recBtn.addEventListener("click", function (event) {
+      event.stopPropagation();          // don't also trigger the card's jump-to-map
+      var wrap = recBtn.parentNode;
+      askAi("api/ai/recommendation", recBtn, null, function (text) {
+        var p = document.createElement("p");
+        p.className = "ai-body";
+        p.textContent = text;
+        wrap.replaceChild(p, recBtn);
+      });
+    });
+  }
 
   /* ---- refresh ---- */
 

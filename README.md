@@ -87,12 +87,42 @@ slightly early or late.
 | `refresh_minutes` | 5–1440 | `60` | How often to poll TarkovTracker in the background. |
 | `kappa_only` | bool | `false` | Show only Kappa-required tasks. Also toggleable in the UI. |
 | `trader_levels.*` | 1–4 | `1` | Your loyalty level per trader. |
+| `excluded_maps` | list | `[]` | Maps to hide entirely, e.g. `Icebreaker`. Useful for event maps or ones you have not unlocked. Hidden before ranking, so they can't win "Run next". |
+| `gemini_api_key` | password | — | Optional. Enables AI route advice. Empty = no AI and no third-party calls. |
+| `gemini_model` | list | `gemini-2.5-flash` | Which Gemini model to use. The flash models have a free tier. |
 
 `game_mode` maps to `regular`/`pve` on tarkov.dev and `pvp`/`pve` on
 TarkovTracker — the two APIs name the same thing differently, and the add-on
 translates.
 
 ---
+
+## AI route advice (optional)
+
+Off by default. Set `gemini_api_key` (get one at
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey)) to add a
+per-map route briefing and a one-line explanation of the "Run next" pick.
+
+Two things are deliberate:
+
+- **It only generates when you press the button.** Nothing runs on startup, on
+  the poller, or on page load, so it cannot burn quota unattended. Answers are
+  cached against your current tasks, so re-asking an unchanged map is free;
+  *Regenerate* forces a fresh call.
+- **It can never touch your packing lists.** The model is allowed to use its own
+  Tarkov knowledge — that is what makes the advice useful, and it is also why it
+  is sometimes wrong. It is confined to a labelled block *below* CARRY IN /
+  KEYS / BRING OUT and cannot alter them. Those come from live game data only,
+  so a hallucinated key can never end up on your checklist.
+
+The **"Run next" recommendation itself is not AI.** It is a deterministic score
+(finishable-task XP, discounted partial XP, a Kappa bonus, a per-key penalty)
+computed in `app/recommend.py`, with the breakdown shown on screen. AI only
+writes the sentence explaining it.
+
+Enabling this sends your task progress and player level to Google, which is a
+change from the add-on's otherwise strict "tarkov.dev and TarkovTracker only"
+policy. Leave the key empty to keep that guarantee.
 
 ## How Ingress is handled
 

@@ -11,6 +11,7 @@
   --carry: #ffb648;
   --loot: #5ed69a;
   --key: #c792ea;
+  --ai: #b39ddb;
   --danger: #ef5350;
   --radius: 10px;
 }
@@ -89,6 +90,98 @@ button:active { transform: translateY(1px); }
 .banner.stale     { border-left-color: var(--carry); }
 .banner.degraded  { border-left-color: var(--key); }
 .banner.upstream  { border-left-color: var(--danger); }
+.banner.ai        { border-left-color: var(--ai); }
+
+/* ---------- recommendation ---------- */
+
+.recommend {
+  margin: 10px 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(3, 169, 244, .14), rgba(3, 169, 244, .04));
+  border: 1px solid rgba(3, 169, 244, .35);
+  cursor: pointer;
+}
+.recommend h2 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.recommend .pick { margin: 2px 0 0; font-size: 21px; font-weight: 700; }
+.recommend .why { margin: 2px 0 0; font-size: 12px; color: var(--dim); }
+.recommend .ai-line {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text);
+  border-top: 1px solid rgba(3, 169, 244, .25);
+  padding-top: 8px;
+}
+.recommend .ai-line::before {
+  content: "AI";
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--ai);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+/* ---------- AI block ---------- */
+
+.block.ai { border-left: 3px solid var(--ai); }
+.block.ai h2 { color: var(--ai); }
+.block.ai .tag {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--ai);
+  color: #1b1030;
+  letter-spacing: .06em;
+}
+.block.ai p { margin: 0 0 8px; font-size: 14px; line-height: 1.5; }
+.block.ai .ai-body:empty { display: none; }
+
+.ai-actions { display: flex; align-items: center; gap: 10px; }
+.ai-status { font-size: 12px; color: var(--danger); }
+
+.ai-ask {
+  border-color: var(--ai);
+  color: var(--ai);
+  background: transparent;
+  font-size: 13px;
+}
+.ai-ask:disabled { opacity: .75; cursor: default; }
+
+/* Three dots that cycle while a request is in flight. */
+.ai-ask.loading::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: dots 1.2s steps(4, end) infinite;
+}
+@keyframes dots {
+  0%   { content: ""; }
+  25%  { content: "."; }
+  50%  { content: ".."; }
+  75%  { content: "..."; }
+  100% { content: ""; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-ask.loading::after { animation: none; content: "..."; }
+}
+.block.ai .disclaimer {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.4;
+}
 
 /* ---------- controls ---------- */
 

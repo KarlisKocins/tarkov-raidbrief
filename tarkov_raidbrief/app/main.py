@@ -34,7 +34,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .brief import build_brief, filter_brief
-from .models import Brief, PlayerInfo, Settings, Warning_
+from .gemini import Gemini
+from .models import Brief, PlayerInfo, Recommendation, Settings, Warning_
+from .recommend import score_maps
 from .tarkovdev import CACHE_TTL, TarkovDev, TarkovDevError
 from .tarkovjson import TarkovJson, TarkovJsonError
 from .tracker import Tracker, TrackerAuthError, TrackerRateLimited, TrackerUnavailable
@@ -63,6 +65,11 @@ class State:
             settings.token,
             settings.tracker_game_mode,
             settings.data_dir / "progress.json",
+        )
+        self.gemini = Gemini(
+            settings.gemini_api_key,
+            settings.gemini_model,
+            settings.data_dir / "ai_cache.json",
         )
         self.tasks: list[dict] = []
         self.tasks_fetched: float | None = None
@@ -114,6 +121,14 @@ class State:
                 "upstream", f"TarkovTracker is unreachable: {exc}"
             )
 
+    @property
+    def player_level(self) -> int:
+        return self.tracker.player_level if self.settings.token else 99
+
+    @property
+    def player_faction(self) -> str:
+        return self.tracker.faction if self.settings.token else "USEC"
+
     async def refresh_all(self, force: bool = False) -> None:
         async with self.lock:
             await self.refresh_tasks(force=force)
@@ -140,6 +155,14 @@ class State:
             settings.trader_levels,
             kappa_only=kappa,
         )
+
+        # Hidden maps are dropped before scoring, so an event map you cannot
+        # enter never wins the recommendation. A task that also appears on a
+        # visible map still shows up there.
+        if settings.excluded_maps:
+            maps = [
+                m for m in maps if not settings.is_excluded(m.name, m.normalized_name)
+            ]
 
         warnings: list[Warning_] = []
         if self.tasks_warning:
@@ -172,9 +195,44 @@ class State:
                 f"missing: {dropped}.{detail}",
             ))
 
+        # Ranking is computed, never generated. The model only narrates it.
+        scores = score_maps(maps)
+        best = next((s for s in scores if s.tasks and s.score > 0), None)
+        recommendation = None
+        if best:
+            recommendation = Recommendation(
+                name=best.name,
+                normalized_name=best.normalized_name,
+                reasons=best.reasons,
+                completable=best.completable,
+                completable_xp=best.completable_xp,
+                tasks=best.tasks,
+                kappa=best.kappa,
+                keys=best.keys,
+            )
+
+        if self.gemini.enabled:
+            level = self.tracker.player_level if has_token else 99
+            faction = self.tracker.faction if has_token else "USEC"
+            for map_brief in maps:
+                cached = self.gemini.for_map(map_brief, level, faction)
+                if cached:
+                    map_brief.ai_text = cached.text
+                    map_brief.ai_generated_at = cached.generated_at
+            if recommendation:
+                rec_text = self.gemini.for_recommendation(scores)
+                if rec_text:
+                    recommendation.ai_text = rec_text.text
+            if self.gemini.last_error:
+                warnings.append(Warning_(
+                    "ai", f"Gemini could not generate advice: {self.gemini.last_error}"
+                ))
+
         now = time.time()
         return Brief(
             maps=maps,
+            recommendation=recommendation,
+            ai_enabled=self.gemini.enabled,
             player=PlayerInfo(
                 name=self.tracker.display_name if has_token else "no token",
                 level=self.tracker.player_level if has_token else 0,
@@ -306,6 +364,59 @@ async def api_refresh(request: Request) -> JSONResponse:
         "tasks_loaded": len(state.tasks),
         "warnings": [asdict(w) for w in brief.warnings],
     })
+
+
+@app.post("/api/ai/map")
+async def api_ai_map(
+    request: Request,
+    map: str = Query(..., description="Map name or normalizedName"),
+    force: bool = Query(False, description="Regenerate even if cached"),
+) -> JSONResponse:
+    """Generate one map's route advice. Explicit user action - costs an API call."""
+    state = _state(request)
+    if not state.gemini.enabled:
+        return JSONResponse({"error": "No Gemini API key configured."}, status_code=400)
+
+    needle = map.strip().lower()
+    target = next(
+        (m for m in state.current_brief().maps
+         if m.name.lower() == needle or m.normalized_name.lower() == needle),
+        None,
+    )
+    if target is None:
+        return JSONResponse({"error": f"Unknown map: {map}"}, status_code=404)
+
+    try:
+        result = await state.gemini.generate_for_map(
+            target, state.player_level, state.player_faction, force=force
+        )
+    except Exception as exc:  # noqa: BLE001 - surface upstream text to the UI
+        log.warning("AI generation failed for %s: %s", target.name, exc)
+        state.gemini.last_error = str(exc)[:200]
+        return JSONResponse({"error": str(exc)[:200]}, status_code=502)
+
+    return JSONResponse({"text": result.text, "generated_at": result.generated_at,
+                         "model": result.model})
+
+
+@app.post("/api/ai/recommendation")
+async def api_ai_recommendation(
+    request: Request,
+    force: bool = Query(False),
+) -> JSONResponse:
+    state = _state(request)
+    if not state.gemini.enabled:
+        return JSONResponse({"error": "No Gemini API key configured."}, status_code=400)
+    try:
+        result = await state.gemini.generate_for_recommendation(
+            score_maps(state.current_brief().maps), force=force
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("AI recommendation failed: %s", exc)
+        state.gemini.last_error = str(exc)[:200]
+        return JSONResponse({"error": str(exc)[:200]}, status_code=502)
+    return JSONResponse({"text": result.text, "generated_at": result.generated_at,
+                         "model": result.model})
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -37,6 +37,33 @@
   <div class="banner {{ w.kind }}">{{ w.message }}</div>
 {% endfor %}
 
+{% if brief.recommendation %}
+  {% set rec = brief.recommendation %}
+  <section class="recommend" data-goto="{{ rec.name }}">
+    <h2>Run next</h2>
+    <p class="pick">{{ rec.name }}</p>
+    <p class="why">
+      {%- if rec.completable -%}
+        {{ rec.completable }} task{{ '' if rec.completable == 1 else 's' }} finishable
+        ({{ "{:,}".format(rec.completable_xp) }} XP)
+      {%- else -%}
+        {{ rec.tasks }} task{{ '' if rec.tasks == 1 else 's' }} to advance
+      {%- endif -%}
+      {% if rec.kappa %} &middot; {{ rec.kappa }} Kappa{% endif %}
+      {% if rec.keys %} &middot; {{ rec.keys }} key{{ '' if rec.keys == 1 else 's' }} needed{% endif %}
+    </p>
+    {% if brief.ai_enabled %}
+      <div class="ai-line" data-ai-rec>
+        {% if rec.ai_text %}
+          <p class="ai-body">{{ rec.ai_text }}</p>
+        {% else %}
+          <button type="button" class="ai-ask" data-ai-rec-btn>Ask AI why</button>
+        {% endif %}
+      </div>
+    {% endif %}
+  </section>
+{% endif %}
+
 <nav class="controls">
   <label class="maps">
     <select id="map-select" aria-label="Choose map">
@@ -109,6 +136,32 @@
           <li>{{ item }}</li>
         {% endfor %}
       </ul>
+    </section>
+    {% endif %}
+
+    {# AI text sits BELOW the authoritative lists and is visually distinct, so a
+       hallucinated route can never be mistaken for the packing checklist. #}
+    {% if brief.ai_enabled %}
+    <section class="block ai" data-ai-map="{{ m.normalized_name or m.name }}">
+      <h2>Route advice <span class="tag">AI</span></h2>
+      <div class="ai-body">
+        {% if m.ai_text %}
+          {% for para in m.ai_text.split('\n') if para.strip() %}
+            <p>{{ para.strip() }}</p>
+          {% endfor %}
+        {% endif %}
+      </div>
+      <div class="ai-actions">
+        <button type="button" class="ai-ask">
+          {{ 'Regenerate' if m.ai_text else 'Get route advice' }}
+        </button>
+        <span class="ai-status" role="status" aria-live="polite"></span>
+      </div>
+      <p class="disclaimer">
+        Written by Gemini using its own map knowledge, generated only when you
+        ask. It can be wrong about routes, extracts and locations — the lists
+        above come from live game data and are what you should pack.
+      </p>
     </section>
     {% endif %}
 

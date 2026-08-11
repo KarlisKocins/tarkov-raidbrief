@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.0
+
+- **Map exclusion.** New `excluded_maps` option hides maps you cannot enter —
+  event maps like Icebreaker, which otherwise topped the recommendation with
+  tasks you have no way to reach. Excluded maps are dropped before scoring, so
+  they can never win. Matched case-insensitively on name or normalized name.
+- **"Run next" recommendation.** A deterministic ranking of which map is worth
+  your next raid, weighted towards tasks you could actually *finish* there in
+  one go, plus Kappa-required tasks, minus a penalty per key needed. This is
+  plain arithmetic, not AI: it is instant, free, reproducible, and cannot
+  invent a task. The score breakdown is shown so you can disagree with it.
+- **Optional Gemini route advice.** Set `gemini_api_key` to enable a per-map
+  briefing that orders your objectives into a route, plus a one-line
+  explanation of the recommendation.
+  - **Generated only when you press the button.** Nothing runs on startup, on
+    the background poller, or on page load, so the add-on cannot spend your
+    quota while you are not looking. Results are cached against the brief, so
+    re-asking an unchanged map is free; "Regenerate" forces a new call.
+  - The model is allowed to use its own map knowledge, which is what makes the
+    text useful and also means it can be wrong. It is therefore confined to its
+    own labelled block *below* the CARRY IN / KEYS / BRING OUT lists, and can
+    never alter them — those come from live game data alone. A hallucinated key
+    can never reach your packing checklist.
+  - The prompt forbids telling you where to spawn, since you do not choose your
+    spawn; spawn-dependent advice must be phrased conditionally.
+  - Leaving the key empty keeps the add-on talking only to tarkov.dev and
+    TarkovTracker. Enabling it sends your task progress and level to Google.
+
 ## 1.1.0
 
 **Switched the task data source to the tarkov.dev JSON API.** 1.0.0 could not

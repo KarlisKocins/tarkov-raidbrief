@@ -44,6 +44,11 @@ class Settings:
     kappa_only: bool = False
     data_dir: Path = Path("/data")
     trader_levels: dict[str, int] = field(default_factory=lambda: {t: 1 for t in TRADERS})
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    # Maps to hide entirely - event maps, or ones you have not unlocked.
+    # Matched case-insensitively against both name and normalizedName.
+    excluded_maps: frozenset[str] = frozenset()
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -59,6 +64,21 @@ class Settings:
             trader_levels={
                 t: _env_int(f"RAIDBRIEF_TRADER_{t.upper()}", 1, 1, 4) for t in TRADERS
             },
+            gemini_api_key=(os.environ.get("RAIDBRIEF_GEMINI_KEY") or "").strip(),
+            gemini_model=(os.environ.get("RAIDBRIEF_GEMINI_MODEL")
+                          or "gemini-2.5-flash").strip(),
+            excluded_maps=frozenset(
+                part.strip().lower()
+                for part in (os.environ.get("RAIDBRIEF_EXCLUDED_MAPS") or "").split(",")
+                if part.strip()
+            ),
+        )
+
+    def is_excluded(self, name: str, normalized_name: str = "") -> bool:
+        if not self.excluded_maps:
+            return False
+        return (name or "").lower() in self.excluded_maps or (
+            bool(normalized_name) and normalized_name.lower() in self.excluded_maps
         )
 
     @property
@@ -92,6 +112,10 @@ class MapBrief:
     carry: list[str] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
     loot: list[str] = field(default_factory=list)
+    # AI narration. Advisory only - it is never allowed to alter the three
+    # lists above, which come from tarkov.dev data alone.
+    ai_text: str | None = None
+    ai_generated_at: float | None = None
 
     @property
     def task_count(self) -> int:
@@ -116,8 +140,25 @@ class Warning_:
 
 
 @dataclass
+class Recommendation:
+    """The computed best map to run next, plus the arithmetic behind it."""
+
+    name: str
+    normalized_name: str
+    reasons: list[str] = field(default_factory=list)
+    completable: int = 0
+    completable_xp: int = 0
+    tasks: int = 0
+    kappa: int = 0
+    keys: int = 0
+    ai_text: str | None = None
+
+
+@dataclass
 class Brief:
     maps: list[MapBrief] = field(default_factory=list)
+    recommendation: Recommendation | None = None
+    ai_enabled: bool = False
     player: PlayerInfo = field(default_factory=PlayerInfo)
     warnings: list[Warning_] = field(default_factory=list)
     tasks_age_seconds: float | None = None
