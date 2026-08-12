@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.6.0
+
+Trader standing moves into the page, and the packing lists get item icons.
+
+- **TRADER STANDING panel.** Loyalty level is the one input nothing upstream
+  can supply — tarkov.dev knows what a task demands, TarkovTracker knows what
+  you have finished, neither knows what Prapor thinks of you — so it used to
+  come from the Configuration tab alone, which meant restarting the add-on
+  after every level-up. It is now a panel at the top of the page: click a pip,
+  the brief rebuilds. Each trader shows a portrait, the loyalty tiers with
+  their real player-level and reputation thresholds on hover, and **how many
+  otherwise-ready tasks that trader alone is holding back** — the number that
+  tells you which trader is worth levelling next. The panel is collapsed by
+  default and remembers whether you left it open.
+- The `trader_levels` options become the starting point rather than the whole
+  story: the panel outranks them once used, **Reset** hands control back, and
+  your answers persist in `/data/standing.json` across restarts and updates.
+- **Trader reputation is now enforced — but only when you supply it.** Twelve
+  tasks compare against reputation rather than loyalty, all of them Fence or
+  Lightkeeper, and several want your standing *below* a threshold (the
+  "Compensation for Damage" chain needs Fence to dislike you). 1.5.0 skipped
+  the check entirely because the value was unknowable. The panel makes it
+  knowable, so a reputation you have entered is now applied; one you have not
+  is still left alone rather than assumed to be 0.00.
+- **Item icons on every packing line.** CARRY IN, KEYS and BRING OUT rows now
+  carry the item's tarkov.dev icon, and each task shows the portrait of the
+  trader who hands it out. Lines naming several interchangeable items
+  ("Aquamari / EWR / Superwater") stay iconless, since no one picture stands
+  for them. Icons are lazy-loaded from tarkov.dev's own asset host and any
+  that fail — a few quest items have no art, and the add-on may be running
+  with no route out — are dropped silently, leaving the row's text alone.
+- The task cache format is now `json-v3`, carrying the trader roster. The
+  first start after updating refetches from tarkov.dev rather than serving a
+  cache with half a panel in it.
+
 ## 1.5.0
 
 A visual pass on the whole page, plus one layout bug that had been hiding in

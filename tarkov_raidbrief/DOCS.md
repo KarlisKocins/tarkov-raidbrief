@@ -15,11 +15,12 @@ memory reading, no injection, no in-game overlay.
    **Settings → API Tokens → Create**, with the **`get progression`**
    permission. This add-on never writes, so that's the only one it needs.
 2. Paste it into `tarkovtracker_token` below and **Start** the add-on.
-3. Set your trader loyalty levels under `trader_levels` — the progress API does
-   not expose them, so they have to be entered by hand. They're used to hide
-   tasks you can't unlock yet, and roughly half of all tasks carry a loyalty
-   requirement, so leaving them all at `1` hides a lot. The add-on shows a
-   banner if it notices they're all still at the default.
+3. Set your trader loyalty levels in the **TRADER STANDING** panel at the top
+   of the page — the progress API does not expose them, so they have to be
+   entered by hand. They're used to hide tasks you can't unlock yet, and
+   roughly half of all tasks carry a loyalty requirement, so leaving them all
+   at `1` hides a lot. The panel says how many tasks each trader is holding
+   back, so you can see at a glance which one is worth levelling.
 
 Without a token the add-on still runs, showing every task as if for a maxed
 character, with a banner saying so.
@@ -32,10 +33,29 @@ character, with a banner saying so.
 | `game_mode` | `regular` | `regular` (PvP) or `pve`. Selects both the task set and which progress to read. |
 | `refresh_minutes` | `60` | Background poll interval for TarkovTracker (5–1440). Never faster than once a minute. |
 | `kappa_only` | `false` | Show only Kappa-required tasks. Also toggleable in the UI. |
-| `trader_levels.*` | `1` | Loyalty level 1–4 per trader. |
+| `trader_levels.*` | `1` | Starting loyalty level 1–4 per trader. Once you use the TRADER STANDING panel it takes over and these become the value **Reset** goes back to. |
 | `excluded_maps` | `[]` | Maps to hide entirely, e.g. `Icebreaker`. Hidden before ranking, so they can't win "Run next". |
 | `gemini_api_key` | — | Optional. Enables AI route advice. Empty = no AI and no third-party calls. |
 | `gemini_model` | `gemini-2.5-flash` | Which Gemini model writes the advice. The flash models have a free tier. |
+
+## Trader standing
+
+The panel above the map list holds the one thing neither upstream can tell us:
+what each trader thinks of you. tarkov.dev knows what a task *demands* and
+TarkovTracker knows which tasks you've finished, but nothing exposes your own
+loyalty level, so you set it here.
+
+- **Loyalty level** — click a pip. The brief rebuilds immediately, and the
+  count beside each trader is how many otherwise-ready tasks that trader alone
+  is holding back.
+- **Reputation** — offered for the traders some task actually compares
+  reputation against, which today is Fence and Lightkeeper. It stays blank and
+  unenforced until you fill it in: the Fence "Compensation for Damage" chain
+  wants your standing *below* a threshold, so guessing at 0.00 would hide
+  tasks in one direction or the other on a number you never gave.
+- **Reset** goes back to the `trader_levels` in the Configuration tab.
+
+Your answers live in `/data/standing.json` and survive restarts and updates.
 
 ## AI route advice (optional)
 
@@ -94,7 +114,7 @@ tarkov.dev and TarkovTracker only.
 | *tarkov.dev rejected part of the query* | The schema changed. The add-on dropped the named block and kept going; some detail (often KEYS) is missing until it's updated. |
 | *Could not reach tarkov.dev on either the JSON or GraphQL API* | Both sources failed and there's no cache yet. Check the add-on has internet access, then hit Refresh. |
 | *The tarkov-data-overlay could not be fetched* | GitHub was unreachable. The list will show some tasks you can't take (loyalty gates live in the overlay, not the API) until it recovers. |
-| *Every trader is configured at loyalty level 1* | Set your real levels under `trader_levels`; until you do, everything gated behind LL2–4 is hidden. |
+| *Every trader is configured at loyalty level 1* | Set your real levels in the TRADER STANDING panel; until you do, everything gated behind LL2–4 is hidden. |
 
 Task data comes from `json.tarkov.dev`; the GraphQL API has been down since
 2026-07-21 and is used only as a fallback. See the repository README for detail.

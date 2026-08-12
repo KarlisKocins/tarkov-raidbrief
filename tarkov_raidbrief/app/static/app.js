@@ -9,6 +9,7 @@
 
   var STORE_PREFIX = "raidbrief.checked.";
   var LAST_MAP_KEY = "raidbrief.lastMap";
+  var STANDING_OPEN_KEY = "raidbrief.standingOpen";
 
   var select = document.getElementById("map-select");
   var sections = Array.prototype.slice.call(document.querySelectorAll("section.map"));
@@ -99,6 +100,104 @@
       });
     }
   });
+
+  /* ---- item icons ----
+     tarkov.dev has no art for a handful of quest items, and the add-on may be
+     running with no route to the internet at all. Either way the row keeps its
+     text; only the picture goes, and the empty frame goes with it so the row
+     matches the ones that never had an icon. */
+
+  Array.prototype.forEach.call(document.querySelectorAll(".ico img, img.portrait"),
+    function (img) {
+      img.addEventListener("error", function () {
+        var box = img.parentNode;
+        img.remove();
+        if (box && box.classList.contains("ico")) box.classList.add("empty");
+      });
+      // A cached failure can beat the listener to the punch.
+      if (img.complete && img.naturalWidth === 0) {
+        img.dispatchEvent(new Event("error"));
+      }
+    });
+
+  /* ---- trader standing ----
+     Every control here changes which tasks are available, which changes the
+     map list, the counts and the recommendation - so the page reloads rather
+     than trying to patch a dozen places by hand. */
+
+  var standing = document.getElementById("standing-panel");
+  if (standing) {
+    try {
+      standing.open = localStorage.getItem(STANDING_OPEN_KEY) === "1";
+    } catch (e) { /* private mode; it just starts closed */ }
+
+    standing.addEventListener("toggle", function () {
+      try {
+        localStorage.setItem(STANDING_OPEN_KEY, standing.open ? "1" : "0");
+      } catch (e) { /* ignore */ }
+    });
+
+    var status = standing.querySelector("[data-standing-status]");
+
+    function saveStanding(body, control) {
+      if (control) control.disabled = true;
+      if (status) {
+        status.className = "standing-note";
+        status.textContent = "Saving";
+      }
+
+      fetch("api/trader-standing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body)
+      })
+        .then(function (r) {
+          return r.json().then(function (payload) {
+            if (!r.ok) throw new Error(payload.error || "HTTP " + r.status);
+            return payload;
+          });
+        })
+        .then(function () {
+          // Keep the panel open across the reload: you are usually setting
+          // several traders in a row.
+          try { localStorage.setItem(STANDING_OPEN_KEY, "1"); } catch (e) { /* ignore */ }
+          window.location.reload();
+        })
+        .catch(function (err) {
+          if (control) control.disabled = false;
+          if (status) {
+            status.className = "standing-note error";
+            status.textContent = "Could not save: " + err.message;
+          }
+        });
+    }
+
+    standing.addEventListener("click", function (event) {
+      var pip = event.target.closest(".pip");
+      if (pip) {
+        var levels = {};
+        levels[pip.closest(".trader").dataset.trader] = Number(pip.dataset.level);
+        saveStanding({ levels: levels }, pip);
+        return;
+      }
+      if (event.target.closest("[data-standing-reset]")) {
+        // The button lives inside the <summary>, whose default action is to
+        // collapse the panel out from under the click.
+        event.preventDefault();
+        saveStanding({ reset: true }, event.target);
+      }
+    });
+
+    standing.addEventListener("change", function (event) {
+      var input = event.target.closest("[data-rep]");
+      // Blank means "still don't know", which is not the same as zero: the
+      // server leaves the reputation gate off until there is a real number.
+      if (!input || input.value === "") return;
+      var reps = {};
+      reps[input.closest(".trader").dataset.trader] = Number(input.value);
+      saveStanding({ reputations: reps }, input);
+    });
+  }
 
   /* ---- AI, on demand only ----
      Nothing here fires on load. The server never generates while rendering,

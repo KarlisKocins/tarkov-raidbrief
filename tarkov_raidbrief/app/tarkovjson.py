@@ -70,6 +70,8 @@ class TarkovJson:
         self.language = language
         self.dropped_blocks: list[str] = []
         self.serving_stale: str | None = None
+        # Trader roster - portraits and loyalty tiers - for the standing panel.
+        self.traders: list[dict] = []
         # Raw tarkov.dev data is missing nearly every trader loyalty gate; the
         # overlay is what makes availability match TarkovTracker. See overlay.py.
         self.overlay = Overlay(cache_path.with_name("overlay.json"), self.game_mode)
@@ -151,11 +153,30 @@ class TarkovJson:
 
         traders = {}
         for entry in _as_list(data.get("traders")):
-            if entry.get("id"):
-                traders[entry["id"]] = {
-                    "name": tr(entry.get("name")) or entry.get("normalizedName") or "?",
-                    "normalizedName": entry.get("normalizedName") or "",
-                }
+            if not entry.get("id"):
+                continue
+            # Loyalty tiers, kept only as the thresholds the standing panel
+            # prints under each trader. Fence's start at 0, so the lowest tier
+            # is read off the data rather than assumed to be 1.
+            levels = sorted(
+                (
+                    {
+                        "level": lvl.get("level"),
+                        "player_level": lvl.get("requiredPlayerLevel") or 0,
+                        "reputation": lvl.get("requiredReputation") or 0,
+                    }
+                    for lvl in entry.get("levels") or []
+                    if isinstance(lvl, dict) and lvl.get("level") is not None
+                ),
+                key=lambda lvl: lvl["level"],
+            )
+            traders[entry["id"]] = {
+                "id": entry["id"],
+                "name": tr(entry.get("name")) or entry.get("normalizedName") or "?",
+                "normalizedName": entry.get("normalizedName") or "",
+                "imageLink": entry.get("imageLink") or "",
+                "levels": levels,
+            }
 
         log.info("Indexed %d items, %d quest items, %d maps, %d traders",
                  len(items), len(quest_items), len(maps), len(traders))
@@ -164,11 +185,14 @@ class TarkovJson:
 
     @staticmethod
     def _overlay_indexes(idx: dict) -> dict:
-        """The id-keyed lookups the overlay needs to resolve its own refs."""
+        """The id-keyed lookups the overlay needs to resolve its own refs, plus
+        the full trader roster the standing panel draws itself from."""
         return {
             "traders": {tid: t.get("normalizedName") or ""
                         for tid, t in (idx.get("traders") or {}).items()},
             "maps": idx.get("maps") or {},
+            "roster": sorted((idx.get("traders") or {}).values(),
+                             key=lambda t: t["normalizedName"]),
         }
 
     # -- transformation to the GraphQL shape -------------------------------
@@ -204,6 +228,14 @@ class TarkovJson:
 
         def map_list(values) -> list[dict]:
             return [maps[v] for v in values or [] if isinstance(v, str) and v in maps]
+
+        def trader_ref(value) -> dict:
+            """A task's trader, minus the loyalty tiers - those would be copied
+            onto all 500-odd tasks and into the cache file."""
+            entry = traders.get(value)
+            if not entry:
+                return {"id": "", "name": "?", "normalizedName": "", "imageLink": ""}
+            return {k: entry[k] for k in ("id", "name", "normalizedName", "imageLink")}
 
         out: list[dict] = []
         for task in _as_list((data.get("tasks") or {}).get("tasks")):
@@ -300,7 +332,7 @@ class TarkovJson:
                 "requiredPrestige": task.get("requiredPrestige"),
                 "factionName": task.get("factionName"),
                 "wikiLink": task.get("wikiLink"),
-                "trader": traders.get(task.get("trader"), {"name": "?", "normalizedName": ""}),
+                "trader": trader_ref(task.get("trader")),
                 "map": maps.get(task.get("map")),
                 "taskRequirements": [
                     {"task": {"id": req.get("task")}, "status": req.get("status") or []}
@@ -342,7 +374,7 @@ class TarkovJson:
 
         cached = self._read_cache()
         if not force and cached and time.time() - cached["fetched"] < CACHE_TTL:
-            return self._corrected(cached), cached["fetched"], []
+            return self._serve(cached), cached["fetched"], []
 
         self.serving_stale = None
         try:
@@ -356,7 +388,7 @@ class TarkovJson:
                 log.warning("json.tarkov.dev unreachable (%s); serving cache from %s", exc,
                             time.strftime("%Y-%m-%d %H:%M", time.localtime(cached["fetched"])))
                 self.serving_stale = str(exc)[:200]
-                return self._corrected(cached), cached["fetched"], []
+                return self._serve(cached), cached["fetched"], []
             raise TarkovJsonError(f"json.tarkov.dev unavailable and no cache: {exc}") from exc
 
         fetched = time.time()
@@ -364,9 +396,15 @@ class TarkovJson:
         self._write_cache(blob)
         log.info("Loaded %d tasks from json.tarkov.dev (mode=%s, lang=%s)",
                  len(tasks), self.game_mode, self.language)
-        return self._corrected(blob), fetched, []
+        return self._serve(blob), fetched, []
 
-    def _corrected(self, blob: dict) -> list[dict]:
+    def _serve(self, blob: dict) -> list[dict]:
+        """Publish the trader roster and hand back the overlay-corrected tasks.
+
+        Every return path in get_tasks goes through here, fresh or cached, so
+        the roster can never be left behind from an earlier fetch.
+        """
+        self.traders = blob.get("roster") or []
         return self.overlay.apply(blob["tasks"], blob.get("traders"), blob.get("maps"))
 
     # -- cache -------------------------------------------------------------
@@ -378,15 +416,16 @@ class TarkovJson:
             return None
         if not isinstance(blob.get("tasks"), list) or not blob["tasks"]:
             return None
-        # "json-v2" caches carry the trader/map id indexes the overlay needs;
-        # the bump discards pre-overlay caches instead of half-correcting them.
-        if blob.get("game_mode") != self.game_mode or blob.get("source") != "json-v2":
+        # "json-v3" caches carry the trader/map id indexes the overlay needs
+        # plus the trader roster; each bump discards the older shape rather
+        # than serving half of it.
+        if blob.get("game_mode") != self.game_mode or blob.get("source") != "json-v3":
             return None
         blob.setdefault("fetched", 0.0)
         return blob
 
     def _write_cache(self, blob: dict) -> None:
-        payload = {"game_mode": self.game_mode, "source": "json-v2", **blob}
+        payload = {"game_mode": self.game_mode, "source": "json-v3", **blob}
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_path.with_suffix(".tmp")

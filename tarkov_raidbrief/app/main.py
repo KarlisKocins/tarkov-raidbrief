@@ -34,10 +34,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .brief import build_brief, filter_brief
+from .brief import build_brief, filter_brief, locked_by_trader
 from .gemini import Gemini
-from .models import Brief, PlayerInfo, Recommendation, Settings, Warning_
+from .models import (
+    TRADERS, Brief, PlayerInfo, Recommendation, Settings, TraderInfo, TraderLevelInfo,
+    Warning_,
+)
 from .recommend import score_maps
+from .standing import Standing
 from .tarkovdev import CACHE_TTL, TarkovDev, TarkovDevError
 from .tarkovjson import TarkovJson, TarkovJsonError
 from .tracker import Tracker, TrackerAuthError, TrackerRateLimited, TrackerUnavailable
@@ -71,6 +75,11 @@ class State:
             settings.gemini_api_key,
             settings.gemini_model,
             settings.data_dir / "ai_cache.json",
+        )
+        # Loyalty levels start at whatever the add-on options say and are then
+        # owned by the standing panel. See standing.py.
+        self.standing = Standing(
+            settings.trader_levels, settings.data_dir / "standing.json"
         )
         self.tasks: list[dict] = []
         self.tasks_fetched: float | None = None
@@ -140,6 +149,90 @@ class State:
         """Whichever client actually supplied the tasks we are serving."""
         return self.tarkovjson if self.source == "json" else self.tarkovdev
 
+    # -- traders -----------------------------------------------------------
+
+    def _gating_traders(self) -> dict[str, str]:
+        """The traders some task's availability turns on, and how: by loyalty
+        level or by reputation.
+
+        Read off the task data rather than hardcoded, so a patch that starts
+        gating on a trader the add-on options never listed shows up in the
+        panel without a code change. A trader no task requires is left out
+        entirely: setting their level would not move a single line of the
+        brief, and the panel is long enough already.
+        """
+        kinds: dict[str, str] = {}
+        for task in self.tasks:
+            for req in task.get("traderRequirements") or []:
+                name = (req.get("trader") or {}).get("normalizedName") or ""
+                kind = (req.get("requirementType") or "level").lower()
+                if not name or kind not in ("level", "reputation"):
+                    continue
+                # Reputation wins the label: a trader gated both ways needs the
+                # rep field on screen, and the pips are drawn either way.
+                if kind == "reputation" or name not in kinds:
+                    kinds[name] = kind
+        return kinds
+
+    def trader_roster(self, statuses: dict[str, str], level: int,
+                      faction: str) -> list[TraderInfo]:
+        gating = self._gating_traders()
+        if not gating:
+            return []
+
+        blocked = locked_by_trader(
+            self.tasks, statuses, level, faction, self.standing.levels,
+            self.settings.game_mode, self.standing.reputations,
+        )
+
+        # Portraits and loyalty thresholds come from the traders dataset. The
+        # GraphQL fallback does not fetch it, so a trader missing there is
+        # rebuilt from the identity stamped on any task they hand out - which
+        # costs the thresholds, not the panel.
+        known = {t["normalizedName"]: t for t in self.active_source.traders}
+        from_tasks: dict[str, dict] = {}
+        for task in self.tasks:
+            trader = task.get("trader") or {}
+            name = trader.get("normalizedName")
+            if name and name not in from_tasks:
+                from_tasks[name] = trader
+
+        roster = [
+            self._trader_info(name, kind, known.get(name) or from_tasks.get(name) or {},
+                              blocked.get(name, 0))
+            for name, kind in gating.items()
+        ]
+        # The game's own trader order, which players already navigate by. Not
+        # sorted by how much each one is blocking, tempting as that is: the
+        # counts change on every click, and a trader that jumped to the far end
+        # of the panel the moment you levelled them is disorienting when you
+        # are setting eight of them in a row. The accent-coloured "N locked"
+        # badge carries that signal instead, without moving anything.
+        order = {name: i for i, name in enumerate(TRADERS)}
+        roster.sort(key=lambda t: (order.get(t.normalized_name, len(order)), t.name))
+        return roster
+
+    def _trader_info(self, name: str, kind: str, entry: dict, gated: int) -> TraderInfo:
+        return TraderInfo(
+            id=entry.get("id") or name,
+            name=entry.get("name") or name.replace("-", " ").title(),
+            normalized_name=name,
+            image=entry.get("imageLink") or "",
+            level=self.standing.level(name),
+            reputation=self.standing.reputation(name),
+            levels=[
+                TraderLevelInfo(
+                    level=lvl["level"],
+                    player_level=lvl.get("player_level") or 0,
+                    reputation=lvl.get("reputation") or 0.0,
+                )
+                for lvl in entry.get("levels") or []
+            ],
+            gated_tasks=gated,
+            tracks_reputation=kind == "reputation",
+            reputation_known=name in self.standing.reputations,
+        )
+
     # -- brief -------------------------------------------------------------
 
     def current_brief(self, kappa_only: bool | None = None) -> Brief:
@@ -147,15 +240,18 @@ class State:
         kappa = settings.kappa_only if kappa_only is None else kappa_only
         statuses = self.tracker.statuses()
         has_token = bool(settings.token)
+        level = self.tracker.player_level if has_token else 99
+        faction = self.tracker.faction if has_token else "USEC"
 
         maps = build_brief(
             self.tasks,
             statuses,
-            self.tracker.player_level if has_token else 99,
-            self.tracker.faction if has_token else "USEC",
-            settings.trader_levels,
+            level,
+            faction,
+            self.standing.levels,
             kappa_only=kappa,
             game_mode=settings.game_mode,
+            trader_reps=self.standing.reputations,
         )
 
         # Hidden maps are dropped before scoring, so an event map you cannot
@@ -241,8 +337,6 @@ class State:
             )
 
         if self.gemini.enabled:
-            level = self.tracker.player_level if has_token else 99
-            faction = self.tracker.faction if has_token else "USEC"
             for map_brief in maps:
                 cached = self.gemini.for_map(map_brief, level, faction)
                 if cached:
@@ -270,6 +364,7 @@ class State:
                 tasks_complete=sum(1 for s in statuses.values() if s == "complete"),
                 has_token=has_token,
             ),
+            traders=self.trader_roster(statuses, level, faction),
             warnings=warnings,
             tasks_age_seconds=(now - self.tasks_fetched) if self.tasks_fetched else None,
             progress_age_seconds=(
@@ -410,6 +505,51 @@ async def api_refresh(request: Request) -> JSONResponse:
         "status": "ok",
         "tasks_loaded": len(state.tasks),
         "warnings": [asdict(w) for w in brief.warnings],
+    })
+
+
+@app.post("/api/trader-standing")
+async def api_trader_standing(request: Request) -> JSONResponse:
+    """Set loyalty levels and reputation from the standing panel.
+
+    Body is `{"levels": {"prapor": 3}, "reputations": {"fence": -2.5}}`, both
+    optional and both partial - the panel sends only what changed. `{"reset":
+    true}` throws the overrides away and hands control back to the add-on
+    options.
+
+    Every value here changes which tasks are available, so this reports the
+    recomputed totals and the page reloads rather than trying to patch the
+    lists in place.
+    """
+    state = _state(request)
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "Body must be JSON."}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Body must be a JSON object."}, status_code=400)
+
+    if body.get("reset"):
+        state.standing.reset()
+    else:
+        levels = body.get("levels") if isinstance(body.get("levels"), dict) else None
+        reputations = (
+            body.get("reputations") if isinstance(body.get("reputations"), dict) else None
+        )
+        if levels is None and reputations is None:
+            return JSONResponse(
+                {"error": "Send 'levels' and/or 'reputations' objects, or 'reset': true."},
+                status_code=400,
+            )
+        state.standing.update(levels, reputations)
+
+    brief = state.current_brief()
+    return JSONResponse({
+        "status": "ok",
+        "customised": state.standing.customised,
+        "levels": state.standing.levels,
+        "reputations": state.standing.reputations,
+        "tasks_available": sum(m.task_count for m in brief.maps),
     })
 
 

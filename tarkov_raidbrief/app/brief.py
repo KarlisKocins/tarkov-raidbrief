@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 
-from .models import ANY_MAP, Brief, MapBrief, TaskBrief
+from .models import ANY_MAP, DEFAULT_TRADER_LEVEL, Brief, MapBrief, TaskBrief
 
 log = logging.getLogger("raidbrief.brief")
 
@@ -78,6 +78,28 @@ def label(item: dict | None) -> str:
     return item.get("shortName") or item.get("name") or "?"
 
 
+# tarkov.dev serves each item's inventory icon under its own id. A few quest
+# items have none and 404, so the page hides an image that fails to load
+# rather than leaving a broken-image glyph in the middle of a checklist.
+ICON_URL = "https://assets.tarkov.dev/{}-icon.webp"
+
+
+def icon(item: dict | None) -> str:
+    if not item or not item.get("id"):
+        return ""
+    return ICON_URL.format(item["id"])
+
+
+def only(items: list[dict] | None) -> dict | None:
+    """The single item behind a label, or None when the label covers several.
+
+    `any_of` renders interchangeable items as 'A / B / C', and no one icon
+    stands for that, so those lines stay iconless.
+    """
+    unique = {label(i): i for i in items or [] if i}
+    return next(iter(unique.values())) if len(unique) == 1 else None
+
+
 def any_of(items: list[dict], limit: int = 4) -> str:
     """Render a list of interchangeable items as 'A / B / C (+2 more)'."""
     names = sorted({label(i) for i in items if i})
@@ -90,6 +112,26 @@ def any_of(items: list[dict], limit: int = 4) -> str:
 
 def _counted(text: str, count: int) -> str:
     return f"{text} x{count}" if count and count > 1 else text
+
+
+def compare(have: float, compare_method: str | None, wanted: float) -> bool:
+    """Evaluate one requirement comparison.
+
+    The JSON API writes these as '>=', '<=', '>', '<', '='; GraphQL wrote the
+    same thing as 'moreThan'/'lessThan', which are *strict*. A method we do not
+    recognise counts as satisfied - a comparison we cannot read must not
+    silently hide a task.
+    """
+    return {
+        ">=": lambda: have >= wanted,
+        "<=": lambda: have <= wanted,
+        ">": lambda: have > wanted,
+        "<": lambda: have < wanted,
+        "=": lambda: have == wanted,
+        "moreThan": lambda: have > wanted,
+        "lessThan": lambda: have < wanted,
+        "equals": lambda: have == wanted,
+    }.get(compare_method or ">=", lambda: True)()
 
 
 def _symbol(compare_method: str | None) -> str:
@@ -177,6 +219,40 @@ def alternative_tasks(tasks: list[dict]) -> dict[str, set[str]]:
     return alternatives
 
 
+def blocking_trader(task: dict, trader_levels: dict[str, int],
+                    trader_reps: dict[str, float] | None = None) -> str | None:
+    """The trader whose standing holds this task back, or None if none does.
+
+    Almost every loyalty gate here comes from the data overlay, which omits
+    `requirementType` (its entries are all loyalty levels, values 1-4) where
+    the raw API sets it to "level" or "reputation".
+
+    **Reputation is only enforced for a trader the player has actually given a
+    number for.** TarkovTracker reads standing from the player's trader state,
+    which the progress API does not expose, so an unanswered trader is left
+    alone rather than judged against an assumed 0.0 - the reputation gates run
+    both ways (the Fence "Compensation for Damage" chain wants standing
+    *below* a threshold), so a wrong assumption hides tasks in either
+    direction. Once the standing panel supplies a value, it is used.
+
+    A trader missing from `trader_levels` counts as DEFAULT_TRADER_LEVEL: the
+    panel and the add-on options between them cover every trader that gates
+    anything, so an absent one is a trader we cannot ask about.
+    """
+    reps = trader_reps or {}
+    for req in task.get("traderRequirements") or []:
+        kind = (req.get("requirementType") or "level").lower()
+        trader = (req.get("trader") or {}).get("normalizedName") or ""
+        value = req.get("value") or req.get("level") or 0
+        if kind == "level":
+            if trader_levels.get(trader, DEFAULT_TRADER_LEVEL) < value:
+                return trader
+        elif kind == "reputation" and trader in reps:
+            if not compare(reps[trader], req.get("compareMethod"), value):
+                return trader
+    return None
+
+
 class Availability:
     """Answers "can this account do this task now?", memoised across a task set.
 
@@ -186,12 +262,14 @@ class Availability:
 
     def __init__(self, tasks: list[dict], statuses: dict[str, str], level: int,
                  faction: str, trader_levels: dict[str, int],
-                 game_mode: str = "regular") -> None:
+                 game_mode: str = "regular",
+                 trader_reps: dict[str, float] | None = None) -> None:
         self.by_id = {t["id"]: t for t in tasks if t.get("id")}
         self.statuses = statuses
         self.level = level
         self.faction = faction
         self.trader_levels = trader_levels
+        self.trader_reps = trader_reps or {}
         self.game_mode = game_mode
         self.alternatives = alternative_tasks(tasks)
 
@@ -209,28 +287,8 @@ class Availability:
 
     # -- individual gates --------------------------------------------------
 
-    def _meets_trader_levels(self, task: dict) -> bool:
-        """Loyalty gates. Almost all of these come from the data overlay.
-
-        The overlay omits `requirementType` (its entries are all loyalty
-        levels, values 1-4), while the raw API sets it to "level" or
-        "reputation". Reputation is skipped: TarkovTracker reads it from the
-        player's trader state, which the progress API does not expose, so
-        enforcing it would hide tasks on a value we cannot know.
-
-        A trader missing from the config defaults to 4 rather than 1. The
-        add-on only offers the ten loyalty-bearing traders, and refusing to
-        show a task because of an unconfigurable trader would be a bug the
-        user cannot fix.
-        """
-        for req in task.get("traderRequirements") or []:
-            if (req.get("requirementType") or "level").lower() != "level":
-                continue
-            trader = (req.get("trader") or {}).get("normalizedName") or ""
-            needed = req.get("value") or req.get("level") or 0
-            if self.trader_levels.get(trader, 4) < needed:
-                return False
-        return True
+    def _meets_trader_standing(self, task: dict) -> bool:
+        return blocking_trader(task, self.trader_levels, self.trader_reps) is None
 
     def _trader_unlocked(self, task: dict) -> bool:
         entry = TRADER_UNLOCK_TASKS.get((task.get("trader") or {}).get("normalizedName") or "")
@@ -301,7 +359,7 @@ class Availability:
                 lambda: not task.get("requiredPrestige"),
                 lambda: (task.get("minPlayerLevel") or 0) <= self.level,
                 lambda: not faction or faction in ("Any", self.faction),
-                lambda: self._meets_trader_levels(task),
+                lambda: self._meets_trader_standing(task),
                 lambda: self._trader_unlocked(task),
                 lambda: all(self._requirement_met(r)
                             for r in task.get("taskRequirements") or []),
@@ -391,25 +449,35 @@ def parse_objective(obj: dict) -> dict:
     carry: list[str] = []
     loot: list[str] = []
     do: list[str] = []
+    icons: dict[str, str] = {}
+
+    def named(text: str, item: dict | None) -> str:
+        """Remember which icon a finished label wears, and hand the label back
+        so this wraps the append rather than needing a line of its own."""
+        url = icon(item)
+        if text and url:
+            icons[text] = url
+        return text
 
     # Keys are a carry-in requirement regardless of what the objective is.
-    keys = sorted({label(k) for k in flatten(obj.get("requiredKeys"))})
+    keys = sorted({named(label(k), k) for k in flatten(obj.get("requiredKeys"))})
 
     if otype in ("plantItem", "plantQuestItem"):
-        target = any_of(obj.get("items") or []) or label(obj.get("questItem"))
+        items = obj.get("items") or []
+        target = any_of(items) or label(obj.get("questItem"))
         if target and target != "?":
-            carry.append(_counted(target, count))
+            carry.append(named(_counted(target, count), only(items) or obj.get("questItem")))
 
     elif otype == "mark":
         marker = obj.get("markerItem")
         if marker:
-            carry.append(label(marker))
+            carry.append(named(label(marker), marker))
 
     elif otype == "buildWeapon":
         base = obj.get("item")
         if base:
-            carry.append(f"{label(base)} (build)")
-        carry += [label(p) for p in (obj.get("containsAll") or [])]
+            carry.append(named(f"{label(base)} (build)", base))
+        carry += [named(label(p), p) for p in (obj.get("containsAll") or [])]
         for attr in obj.get("attributes") or []:
             req = attr.get("requirement") or {}
             # A zeroed threshold is "unconstrained", same as distance above.
@@ -420,20 +488,22 @@ def parse_objective(obj: dict) -> dict:
     elif otype == "useItem":
         options = obj.get("useAny") or []
         if options:
-            carry.append(_counted(any_of(options), count))
+            carry.append(named(_counted(any_of(options), count), only(options)))
 
     elif otype in LOOT_TYPES or otype in CONDITIONAL_LOOT_TYPES:
         fir = bool(obj.get("foundInRaid")) or otype in ("findQuestItem", "giveQuestItem")
-        target = any_of(obj.get("items") or []) or label(obj.get("questItem"))
+        items = obj.get("items") or []
+        target = any_of(items) or label(obj.get("questItem"))
         if target and target != "?" and (otype in LOOT_TYPES or fir):
             suffix = " (FiR)" if fir else ""
-            loot.append(f"{_counted(target, count)}{suffix}")
+            loot.append(named(f"{_counted(target, count)}{suffix}",
+                              only(items) or obj.get("questItem")))
 
     elif otype == "shoot":
         # The gun and kit are a loadout constraint: they have to be on you.
-        carry += [f"weapon: {label(w)}" for w in flatten(obj.get("usingWeapon"))[:4]]
-        carry += [f"mod: {label(m)}" for m in flatten(obj.get("usingWeaponMods"))[:4]]
-        carry += [f"wear: {label(g)}" for g in flatten(obj.get("wearing"))[:4]]
+        carry += [named(f"weapon: {label(w)}", w) for w in flatten(obj.get("usingWeapon"))[:4]]
+        carry += [named(f"mod: {label(m)}", m) for m in flatten(obj.get("usingWeaponMods"))[:4]]
+        carry += [named(f"wear: {label(g)}", g) for g in flatten(obj.get("wearing"))[:4]]
 
     description = (obj.get("description") or otype or "objective").strip()
     conditions = _conditions(obj)
@@ -450,6 +520,7 @@ def parse_objective(obj: dict) -> dict:
         "keys": keys,
         "loot": loot,
         "do": do,
+        "icons": icons,
         "optional": bool(obj.get("optional")),
     }
 
@@ -470,15 +541,55 @@ def is_raid_relevant(info: dict) -> bool:
 # assembly
 # --------------------------------------------------------------------------
 
+class _MaxedTraders(dict):
+    """Trader levels for the "if standing were no object" pass below."""
+
+    def get(self, key, default=None):  # noqa: ARG002 - every trader is maxed
+        return 99
+
+
+def locked_by_trader(tasks: list[dict], statuses: dict[str, str], level: int, faction: str,
+                     trader_levels: dict[str, int], game_mode: str = "regular",
+                     trader_reps: dict[str, float] | None = None) -> dict[str, int]:
+    """Per trader, how many tasks their standing alone is holding back.
+
+    Answered by running the availability check twice - once as the account
+    really is, once with every loyalty gate wide open - and attributing each
+    task the second pass gains to the requirement that failed in the first.
+    Everything else about those tasks already checks out, so each number is
+    what the brief would gain by levelling that one trader, which is what the
+    standing panel puts beside the pips.
+
+    A task blocked only *indirectly*, through a prerequisite that is itself
+    trader-gated, has no failing requirement of its own and is left uncounted;
+    it reappears in the count of whichever trader is actually blocking it.
+    """
+    strict = Availability(tasks, statuses, level, faction, trader_levels,
+                          game_mode, trader_reps)
+    lenient = Availability(tasks, statuses, level, faction, _MaxedTraders(), game_mode, {})
+
+    blocked: dict[str, int] = defaultdict(int)
+    for task in tasks:
+        if strict(task) or not lenient(task):
+            continue
+        culprit = blocking_trader(task, trader_levels, trader_reps)
+        if culprit:
+            blocked[culprit] += 1
+    return dict(blocked)
+
+
 def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction: str,
                 trader_levels: dict[str, int], kappa_only: bool = False,
-                game_mode: str = "regular") -> list[MapBrief]:
+                game_mode: str = "regular",
+                trader_reps: dict[str, float] | None = None) -> list[MapBrief]:
     """Group every available task's objectives by the map they happen on."""
     buckets: dict[str, dict] = defaultdict(
-        lambda: {"normalized": "", "tasks": [], "carry": set(), "keys": set(), "loot": set()}
+        lambda: {"normalized": "", "tasks": [], "carry": set(), "keys": set(),
+                 "loot": set(), "icons": {}}
     )
 
-    is_available = Availability(tasks, statuses, level, faction, trader_levels, game_mode)
+    is_available = Availability(tasks, statuses, level, faction, trader_levels,
+                                game_mode, trader_reps)
 
     for task in tasks:
         if kappa_only and not task.get("kappaRequired"):
@@ -509,6 +620,7 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
                 keys=sorted({k for i in infos for k in i["keys"]}),
                 loot=sorted({l for i in infos for l in i["loot"]}),
                 do=[d for i in infos for d in i["do"]],
+                trader_image=(task.get("trader") or {}).get("imageLink") or "",
             )
 
             bucket = buckets[map_name]
@@ -516,6 +628,8 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
             bucket["carry"].update(entry.carry)
             bucket["keys"].update(entry.keys)
             bucket["loot"].update(entry.loot)
+            for info in infos:
+                bucket["icons"].update(info["icons"])
 
             map_obj = next(
                 (m for o in task.get("objectives") or []
@@ -533,6 +647,7 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
             carry=sorted(data["carry"]),
             keys=sorted(data["keys"]),
             loot=sorted(data["loot"]),
+            icons=data["icons"],
         )
         for name, data in buckets.items()
     ]

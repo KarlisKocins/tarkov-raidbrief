@@ -121,15 +121,26 @@ maxed character, with a banner saying so.
 
 ### Trader loyalty levels
 
-The progress API does **not** expose trader loyalty levels, so set them yourself
-under `trader_levels` in the add-on Configuration tab. They're used to hide tasks
-you can't unlock yet.
+The progress API does **not** expose trader loyalty levels, so you tell the
+add-on yourself, in the **TRADER STANDING** panel at the top of the page. Click
+a pip and the brief rebuilds; each trader shows how many otherwise-ready tasks
+their standing alone is holding back, which is the number that tells you who to
+level next. Your answers are kept in `/data/standing.json` and survive restarts
+and updates; **Reset** goes back to the `trader_levels` in the Configuration
+tab, which are now just the starting values.
 
 **Set these to your real levels.** Since 1.4.0 the overlay supplies a loyalty
 requirement for roughly half of all tasks, so these values genuinely change what
 you see — leaving everything at the default `1` hides every task gated behind
 LL2–4, and the add-on shows a banner when it notices. A trader you can't
 configure (the BTR Driver has no loyalty levels) never hides anything.
+
+Reputation gets its own field, for the traders a task actually compares
+reputation against — Fence and Lightkeeper today. It stays blank and
+unenforced until you fill it in, deliberately: several of those requirements
+want your standing *below* a threshold (the "Compensation for Damage" chain
+needs Fence to dislike you), so assuming 0.00 would hide tasks one way or the
+other on a number you never gave.
 
 ---
 
@@ -141,7 +152,7 @@ configure (the BTR Driver has no loyalty levels) never hides anything.
 | `game_mode` | `regular` \| `pve` | `regular` | Which mode's tasks and progress to show. |
 | `refresh_minutes` | 5–1440 | `60` | How often to poll TarkovTracker in the background. |
 | `kappa_only` | bool | `false` | Show only Kappa-required tasks. Also toggleable in the UI. |
-| `trader_levels.*` | 1–4 | `1` | Your loyalty level per trader. |
+| `trader_levels.*` | 1–4 | `1` | Starting loyalty level per trader. The TRADER STANDING panel takes over once used; these become what **Reset** restores. |
 | `excluded_maps` | list | `[]` | Maps to hide entirely, e.g. `Icebreaker`. Useful for event maps or ones you have not unlocked. Hidden before ranking, so they can't win "Run next". |
 | `gemini_api_key` | password | — | Optional. Enables AI route advice. Empty = no AI and no third-party calls. |
 | `gemini_model` | list | `gemini-2.5-flash` | Which Gemini model to use. The flash models have a free tier. |

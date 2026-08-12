@@ -16,6 +16,18 @@
 </head>
 <body>
 
+{# Item icons come from tarkov.dev's own asset host, keyed by item id. The box
+   is drawn even when there is no icon so every row's text starts at the same
+   x - a ragged left edge is worse than a blank square. Images are lazy and
+   app.js drops any that 404 (a few quest items have no art), so a flaky
+   connection costs you pictures and nothing else. #}
+{% macro icon(m, item) -%}
+  {%- set url = m.icons.get(item) -%}
+  <span class="ico{% if not url %} empty{% endif %}">
+    {%- if url %}<img src="{{ url }}" alt="" loading="lazy" width="28" height="28">{% endif -%}
+  </span>
+{%- endmacro %}
+
 <header class="topbar">
   <div class="who">
     {# Wordmark: under Ingress the sidebar already says "Raid Brief", but on the
@@ -42,6 +54,80 @@
 {% for w in brief.warnings %}
   <div class="banner {{ w.kind }}">{{ w.message }}</div>
 {% endfor %}
+
+{# Loyalty level is the one input nothing upstream knows: tarkov.dev has the
+   requirement, TarkovTracker has your tasks, neither has your standing. It
+   used to come from the add-on options alone, which meant a restart after
+   every level-up. Collapsed by default because it is a thing you set, not a
+   thing you read while packing. #}
+{% if brief.traders %}
+  {% set gated_total = brief.traders|sum(attribute='gated_tasks') %}
+  <section class="standing">
+    <details id="standing-panel">
+      <summary>
+        <span class="lead">Trader standing</span>
+        <span class="hint">
+          {%- if gated_total -%}
+            {{ gated_total }} task{{ '' if gated_total == 1 else 's' }} locked behind loyalty
+          {%- else -%}
+            set your loyalty level to filter tasks you cannot accept
+          {%- endif -%}
+        </span>
+        <button type="button" class="reset" data-standing-reset
+                title="Go back to the levels set in the add-on options">Reset</button>
+      </summary>
+
+      <div class="traders">
+        {% for t in brief.traders %}
+          <div class="trader" data-trader="{{ t.normalized_name }}">
+            {% if t.image %}
+              <img class="portrait" src="{{ t.image }}" alt="" loading="lazy"
+                   width="34" height="34">
+            {% endif %}
+            <div class="detail">
+              <div class="tname">{{ t.name }}</div>
+              <div class="tmeta">
+                {% if t.levels|length > 1 %}
+                  <span>LL {{ t.level }}/{{ t.max_level }}</span>
+                {% endif %}
+                {% if t.gated_tasks %}
+                  <span class="gated">{{ t.gated_tasks }} locked</span>
+                {% endif %}
+              </div>
+
+              {% if t.levels|length > 1 %}
+                <div class="pips">
+                  {% for l in t.levels %}
+                    <button type="button" data-level="{{ l.level }}"
+                            class="pip{% if l.level <= t.level %} on{% endif %}{% if l.level == t.level %} now{% endif %}"
+                            aria-pressed="{{ 'true' if l.level == t.level else 'false' }}"
+                            title="{{ t.name }} LL{{ l.level }}{% if l.player_level %} &middot; player level {{ l.player_level }}{% endif %}{% if l.reputation %} &middot; rep {{ l.reputation }}{% endif %}">{{ l.level }}</button>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              {# Only shown for traders a task actually compares rep against —
+                 Fence and Lightkeeper today. Left blank until you fill it in,
+                 and the gate stays off while it is blank: judging a task
+                 against an assumed 0.00 would hide it on a made-up number. #}
+              {% if t.tracks_reputation %}
+                <label class="rep">
+                  <span>Rep</span>
+                  <input type="number" step="0.01" inputmode="decimal"
+                         data-rep placeholder="unset"
+                         value="{{ '%.2f'|format(t.reputation) if t.reputation_known else '' }}"
+                         aria-label="{{ t.name }} reputation">
+                </label>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <p class="standing-note" data-standing-status role="status" aria-live="polite"></p>
+    </details>
+  </section>
+{% endif %}
 
 {% if brief.recommendation %}
   {% set rec = brief.recommendation %}
@@ -113,7 +199,9 @@
       {% if m.carry %}
         <ul class="check">
           {% for item in m.carry %}
-            <li><label><input type="checkbox" value="{{ item }}"><span>{{ item }}</span></label></li>
+            <li><label><input type="checkbox" value="{{ item }}">
+              {{ icon(m, item) }}<span class="name">{{ item }}</span>
+            </label></li>
           {% endfor %}
         </ul>
       {% else %}
@@ -130,7 +218,9 @@
       </h2>
       <ul class="check">
         {% for item in m.keys %}
-          <li class="key"><label><input type="checkbox" value="key:{{ item }}"><span>{{ item }}</span></label></li>
+          <li class="key"><label><input type="checkbox" value="key:{{ item }}">
+            {{ icon(m, item) }}<span class="name">{{ item }}</span>
+          </label></li>
         {% endfor %}
       </ul>
     </section>
@@ -141,7 +231,7 @@
       <h2>Bring out <span class="n">{{ "%02d"|format(m.loot|length) }}</span></h2>
       <ul class="plain">
         {% for item in m.loot %}
-          <li>{{ item }}</li>
+          <li>{{ icon(m, item) }}<span class="name">{{ item }}</span></li>
         {% endfor %}
       </ul>
     </section>
@@ -178,6 +268,10 @@
       {% for t in m.tasks %}
         <article class="task">
           <h3>
+            {% if t.trader_image %}
+              <img class="portrait" src="{{ t.trader_image }}" alt="" loading="lazy"
+                   width="22" height="22" title="{{ t.trader }}">
+            {% endif %}
             {% if t.wiki %}<a href="{{ t.wiki }}" target="_blank" rel="noopener">{{ t.name }}</a>
             {% else %}{{ t.name }}{% endif %}
             {% if t.kappa %}<span class="kappa" title="Required for Kappa">K</span>{% endif %}

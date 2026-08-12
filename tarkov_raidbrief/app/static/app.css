@@ -179,6 +179,153 @@ button:active { transform: translateY(1px); }
 .banner.upstream  { border-left-color: var(--danger); }
 .banner.ai        { border-left-color: var(--ai); }
 
+/* ---------- trader standing ---------- */
+
+.standing { margin: 12px 14px 0; }
+
+.standing details {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.standing summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: 700 12px var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--accent);
+  /* The default triangle sits on the baseline and ignores our colours; the
+     ::before caret below is drawn with the rest of the type instead. */
+  list-style: none;
+}
+.standing summary::-webkit-details-marker { display: none; }
+.standing summary::before {
+  content: "\25B8";
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.standing details[open] summary::before { content: "\25BE"; }
+.standing summary:hover { color: #e0c47c; }
+.standing summary:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+.standing .hint {
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: .06em;
+  color: var(--dimmer);
+  min-width: 0;
+  /* On a phone the summary is already three items wide; the hint is the one
+     that can afford to be cut. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.standing .reset { margin-left: auto; flex: none; padding: 2px 8px; font-size: 11px; }
+
+/* One hairline grid, so the traders read as a table rather than nine cards. */
+.standing .traders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  border-top: 1px solid var(--line);
+}
+
+.trader {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface);
+  /* Rules drawn *inside* each cell rather than as grid gaps: the last row is
+     rarely full, and a gap colour would leave a stray block of it hanging off
+     the end of the grid. */
+  box-shadow: inset -1px -1px 0 var(--line-dim);
+}
+.trader .portrait {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+.trader .detail { min-width: 0; }
+.trader .tname {
+  font: 600 12px var(--font-display);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-bright);
+}
+.trader .tmeta {
+  display: flex;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--dimmer);
+  margin-bottom: 4px;
+}
+/* How many tasks this one trader is holding back — the number that tells you
+   which trader to level next, so it gets the accent rather than the grey. */
+.trader .gated { color: var(--accent); }
+
+.trader .pips { display: flex; gap: 3px; }
+.trader .pip {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font: 600 11px var(--font-mono);
+  letter-spacing: 0;
+  color: var(--dimmer);
+  border: 1px solid var(--line);
+  background: transparent;
+}
+/* Filled up to the level you have: the row reads as a bar at a glance, and
+   the current level is the solid one. */
+.trader .pip.on {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: rgba(200, 169, 90, .18);
+}
+.trader .pip.now { background: var(--accent); color: var(--bg); }
+.trader .pip:hover { border-color: var(--accent); color: var(--accent); }
+.trader .pip.now:hover { color: var(--bg); }
+
+.trader .rep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--dimmer);
+}
+.trader .rep input {
+  width: 84px;
+  font: 12px var(--font-mono);
+  padding: 2px 6px;
+  color: var(--text-bright);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.trader .rep input:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+.standing-note {
+  margin: 0;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 2.4;
+}
+.standing-note:empty { display: none; }
+.standing-note.error { color: var(--danger); }
+
 /* ---------- recommendation ---------- */
 
 .recommend {
@@ -437,12 +584,51 @@ ul.check input {
   flex: none;
 }
 ul.check em { margin-left: auto; font-style: normal; font-size: 10px; color: var(--key); text-transform: uppercase; }
-ul.check input:checked + span { color: var(--dim); text-decoration: line-through; }
+
+/* `~ .name` rather than `+ span`: the icon box sits between the checkbox and
+   the label text, and striking through a picture does nothing useful. */
+ul.check input:checked ~ .name { color: var(--dim); text-decoration: line-through; }
+ul.check input:checked + .ico { opacity: .45; }
+
+/* ---------- item icons ----------
+   A fixed box on every row, drawn whether or not there is an icon, so the
+   labels line up in a column. Only the ones with art get the frame. */
+
+.ico {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: #0f0d08;
+  border: 1px solid var(--line);
+}
+.ico img { max-width: 28px; max-height: 28px; }
+.ico.empty { background: transparent; border-color: transparent; }
+
+.block.keys .ico { border-color: var(--key-line); }
+.block.out .ico { border-color: var(--loot-line); }
+
+/* The trader who hands a task out, next to the task name. */
+.task h3 .portrait {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  vertical-align: -6px;
+  margin-right: 6px;
+}
 
 .block.keys ul.check input { accent-color: var(--key); }
-.block.keys ul.check li span { color: var(--key-text); }
+.block.keys ul.check li .name { color: var(--key-text); }
 
-ul.plain li { padding: 8px 0; color: var(--loot-text); }
+ul.plain li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  color: var(--loot-text);
+}
 
 .none { margin: 0; color: var(--dim); font-size: 13px; }
 .empty { margin: 24px 14px; color: var(--dim); }

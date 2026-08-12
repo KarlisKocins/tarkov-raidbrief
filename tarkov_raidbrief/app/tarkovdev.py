@@ -118,7 +118,7 @@ def build_query(enabled: frozenset[str] = ALL_BLOCKS, game_mode: str | None = No
     factionName
     wikiLink
     {prestige}
-    trader {{ name normalizedName }}
+    trader {{ id name normalizedName imageLink }}
     map {{ name normalizedName }}
     taskRequirements {{ task {{ id name }} status }}
     traderRequirements {{ trader {{ normalizedName }} requirementType compareMethod value }}
