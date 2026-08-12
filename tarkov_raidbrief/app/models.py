@@ -106,6 +106,11 @@ class TaskBrief:
     xp: int
     kappa: bool
     wiki: str | None
+    # True when the task carries an `otherRequirements` trader-progression gate
+    # (the 1.x rework). The add-on cannot evaluate those - nothing publishes
+    # the player's side - so the task is still listed, but flagged, because it
+    # may be one the game will not let you accept yet. See brief.story_gates.
+    story_gated: bool = False
     carry: list[str] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
     loot: list[str] = field(default_factory=list)
@@ -275,6 +280,14 @@ class Brief:
     tasks_age_seconds: float | None = None
     progress_age_seconds: float | None = None
     game_mode: str = "regular"
+    # What was actually applied, which is False whenever the flag is degraded
+    # regardless of what was asked for - see `kappa_available`.
     kappa_only: bool = False
+    # False when the dataset's `kappaRequired` flag is too sparse to mean
+    # anything (brief.kappa_flag_usable). The toggle is inert in that state and
+    # the template says so instead of offering a filter that does nothing.
+    kappa_available: bool = True
+    # Distinct tasks carrying an unevaluatable trader-progression gate.
+    story_gated_tasks: int = 0
     dropped_blocks: list[str] = field(default_factory=list)
     generated_at: float = 0.0

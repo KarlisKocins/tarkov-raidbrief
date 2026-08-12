@@ -656,6 +656,101 @@ def locked_by_trader(tasks: list[dict], statuses: dict[str, str], level: int, fa
     return dict(blocked)
 
 
+# --------------------------------------------------------------------------
+# trader-progression gates (`otherRequirements`)
+# --------------------------------------------------------------------------
+#
+# The 1.x trader rework gates a large part of the task tree behind per-trader
+# progression, expressed in the data as `otherRequirements`:
+#
+#     {"type": "globalVariable", "variableId": "<id>",
+#      "compareMethod": ">=", "value": 3}
+#
+# 173 of the 516 live tasks carry one - more than carry `traderRequirements`
+# (106) - across 27 distinct variables, each tied to exactly one trader, with
+# thresholds from 1 to 5. There are about three variables per trader, so they
+# are finer-grained than loyalty level. The other 12 are `type: "dialogue"`,
+# "go and talk to this trader first".
+#
+# **We cannot evaluate them.** The player's side of the comparison is not
+# published anywhere reachable:
+#
+# * TarkovTracker's `/api/v2/progress` returns `tasksProgress`,
+#   `taskObjectivesProgress`, `hideoutModulesProgress`, `hideoutPartsProgress`,
+#   `displayName`, `userId`, `playerLevel`, `gameEdition`, `pmcFaction` - and
+#   nothing else. No global variables.
+# * The variable ids appear nowhere but on the gates themselves: zero hits in
+#   tarkov-data-overlay, zero in TarkovTracker's `tasks-core` (which strips
+#   `otherRequirements` wholesale), and no definition in the tasks blob's
+#   `achievements` or `prestige` sections.
+# * "How many tasks have you completed for this trader" does not explain them
+#   either - checked against a real level 17 account with 53 completions,
+#   where every one of its 14 gated Streets tasks would have passed.
+#
+# So this is deliberately *not* wired into `Availability`. Guessing "unmet"
+# would hide tasks the player can actually take, and guessing "met" is what
+# the add-on already did by ignoring the field - the failure the user sees.
+# Instead the count rides along on the task so the page can say "this one may
+# also need trader progression I cannot see", which is the honest answer and
+# the one that stops the list being read as gospel.
+#
+# If a source for the player's variable state ever appears, `Availability`
+# gains one more check and this comment gets shorter.
+
+def story_gates(task: dict) -> int:
+    """How many unevaluatable trader-progression gates this task carries."""
+    return sum(
+        1 for req in task.get("otherRequirements") or []
+        if isinstance(req, dict) and req.get("type") in ("globalVariable", "dialogue")
+    )
+
+
+# --------------------------------------------------------------------------
+# the Kappa flag, and why it cannot be trusted
+# --------------------------------------------------------------------------
+#
+# `kappaRequired` is meant to mark every task standing between you and the
+# Collector quest. In the data we can currently reach it marks 16 of 516 tasks
+# (17 of 490 in TarkovTracker's own merged feed), and those 16 are exactly the
+# transitive closure of Collector's `taskRequirements`:
+#
+#     Collector -> Shooter Born in Heaven, Sew it Good - Part 2, Postman Pat -
+#     Part 2, Chemical - Part 4, The Tarkov Shooter - Part 4 (+ their parents,
+#     + the Big Customer / Out of Curiosity branch off Chemical - Part 4)
+#
+# The closure stops at 16 because those chain roots carry no `taskRequirements`
+# of their own in this dataset - the same lossiness that leaves 247 trader
+# loyalty gates for overlay.py to put back. It is not the Kappa list.
+#
+# The give-away is the false negatives: Setup, The Punisher - Part 1, Wet Job -
+# Part 1 and Psycho Sniper are all unarguably required for Kappa and all come
+# back `kappaRequired: false`. Filtering on that does not produce a short list,
+# it produces a *wrong* one, and the "K" badge would actively assert that
+# Setup is optional.
+#
+# There is nowhere to get the real flag right now. The GraphQL API - which
+# served a populated `kappaRequired` - has been down since 2026-07-21 (see
+# tarkovjson.py), tarkov-data-overlay patches seven fields and this is not one
+# of them, and tarkovtracker.org/api/tarkov/tasks-core carries the same 17. So
+# the honest move is to detect the degraded flag and stop pretending, rather
+# than to silently hand back a list that omits most of Kappa.
+#
+# The floor is deliberately far below any plausible real count (the flag covers
+# a large fraction of the task tree when it is populated) and far above the
+# closure it degrades to, so it needs no maintenance as tasks come and go.
+KAPPA_FLAG_FLOOR = 100
+
+
+def kappa_flag_usable(tasks: list[dict]) -> bool:
+    """True when `kappaRequired` looks populated rather than degraded.
+
+    See the note above: a healthy dataset flags hundreds of tasks, a degraded
+    one flags about sixteen. Anything under the floor is treated as "upstream
+    does not know", which is different from "nothing is required for Kappa".
+    """
+    return sum(1 for t in tasks if t.get("kappaRequired")) >= KAPPA_FLAG_FLOOR
+
+
 def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction: str,
                 trader_levels: dict[str, int], kappa_only: bool = False,
                 game_mode: str = "regular",
@@ -679,9 +774,19 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
     `map_details` is the per-map raid context from the maps dataset, keyed by
     normalizedName; absent (the GraphQL fallback) it simply leaves those
     fields empty on every MapBrief.
+
+    `kappa_only` is honoured only when the dataset's `kappaRequired` flag is
+    actually populated - see `kappa_flag_usable`. The check lives here rather
+    than in the caller so that every entry point gets it and no caller can
+    forget: when the flag is degraded the filter is dropped *and* no task
+    claims to be Kappa-required, which keeps the badge, the ranking bonus in
+    recommend.py and the AI prompt in gemini.py all consistently silent.
     """
     progress = objective_progress or {}
     details = map_details or {}
+    kappa_known = kappa_flag_usable(tasks)
+    if not kappa_known:
+        kappa_only = False
     buckets: dict[str, dict] = defaultdict(
         lambda: {"normalized": "", "tasks": [], "carry": set(), "keys": set(),
                  "loot": set(), "icons": {}, "exits": set()}
@@ -720,7 +825,8 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
                 trader=(task.get("trader") or {}).get("name") or "?",
                 min_level=task.get("minPlayerLevel") or 0,
                 xp=task.get("experience") or 0,
-                kappa=bool(task.get("kappaRequired")),
+                kappa=kappa_known and bool(task.get("kappaRequired")),
+                story_gated=story_gates(task) > 0,
                 wiki=task.get("wikiLink"),
                 carry=sorted({c for i in infos for c in i["carry"]}),
                 keys=sorted({k for i in infos for k in i["keys"]}),

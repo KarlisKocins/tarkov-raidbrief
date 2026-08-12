@@ -34,11 +34,27 @@ character, with a banner saying so.
 | `tarkovtracker_token` | — | Your API token with `get progression`. |
 | `game_mode` | `regular` | `regular` (PvP) or `pve`. Selects both the task set and which progress to read. |
 | `refresh_minutes` | `60` | Background poll interval for TarkovTracker (5–1440). Never faster than once a minute. |
-| `kappa_only` | `false` | Show only Kappa-required tasks. Also toggleable in the UI. |
+| `kappa_only` | `false` | Show only Kappa-required tasks. Also toggleable in the UI. Ignored while tarkov.dev's `kappaRequired` flag is degraded — the add-on says so on screen. |
 | `trader_levels.*` | `1` | Starting loyalty level 1–4 per trader. Once you use the TRADER STANDING panel it takes over and these become the value **Reset** goes back to. |
 | `excluded_maps` | `[]` | Maps to hide entirely, e.g. `Icebreaker`. Hidden before ranking, so they can't win "Run next". |
 | `gemini_api_key` | — | Optional. Enables AI route advice. Empty = no AI and no third-party calls. |
 | `gemini_model` | `gemini-2.5-flash` | Which Gemini model writes the advice. The flash models have a free tier. |
+
+## "It's showing tasks I can't take"
+
+Look for a **dot** beside the task name.
+
+The 1.x trader rework gates much of the task tree behind per-trader
+progression, carried in the data as `otherRequirements`. 173 of the 516 live
+tasks have one — more than have a trader loyalty requirement. Nothing
+publishes how far along each trader you are: TarkovTracker's progress API
+returns tasks, objectives, hideout, level, edition and faction and no global
+variables, and the 27 variable ids appear nowhere in the data overlay or in
+TarkovTracker's own task feed.
+
+So the add-on cannot check those gates. It lists the task and marks it, rather
+than hiding something you might be able to take. A dotted task that is missing
+in game is that gate.
 
 ## Trader standing
 
@@ -132,6 +148,9 @@ tarkov.dev and TarkovTracker only.
 | *Could not reach tarkov.dev on either the JSON or GraphQL API* | Both sources failed and there's no cache yet. Check the add-on has internet access, then hit Refresh. |
 | *The tarkov-data-overlay could not be fetched* | GitHub was unreachable. The list will show some tasks you can't take (loyalty gates live in the overlay, not the API) until it recovers. |
 | *Every trader is configured at loyalty level 1* | Set your real levels in the TRADER STANDING panel; until you do, everything gated behind LL2–4 is hidden. |
+| *N tasks below also need trader progression* | Nothing to do — those tasks carry a 1.x gate nobody publishes your side of, so they're listed with a dot instead of being vouched for. If a dotted task is missing in game, that gate is why. |
+| *TarkovTracker accepted the token but reports no completed tasks* | Wrong `game_mode` (it defaults to `regular` = PVP), or the token belongs to a different TarkovTracker account than the one you browse. Run `tools/tracker-doctor.py` to see both modes. |
+| *"Kappa only" is off because …* | Nothing to do. tarkov.dev's `kappaRequired` flag is degraded upstream; filtering on it would hide most of what Kappa needs, so the filter is ignored until it recovers. |
 
 Task data comes from `json.tarkov.dev`; the GraphQL API has been down since
 2026-07-21 and is used only as a fallback. See the repository README for detail.

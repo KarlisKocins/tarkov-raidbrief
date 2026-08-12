@@ -22,7 +22,9 @@ configuration:
     name: Kappa tasks only
     description: >-
       Show only tasks required for the Kappa container. Also toggleable in the
-      UI without restarting.
+      UI without restarting. Ignored while tarkov.dev is not publishing which
+      tasks Kappa needs — the add-on says so on screen rather than filtering
+      on a flag that would hide most of them.
   gemini_api_key:
     name: Google Gemini API key (optional)
     description: >-

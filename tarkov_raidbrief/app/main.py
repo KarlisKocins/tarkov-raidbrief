@@ -34,7 +34,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .brief import build_brief, filter_brief, locked_by_trader
+from .brief import build_brief, filter_brief, kappa_flag_usable, locked_by_trader
 from .gemini import Gemini
 from .models import (
     TRADERS, Brief, PlayerInfo, Recommendation, Settings, TraderInfo, TraderLevelInfo,
@@ -256,9 +256,14 @@ class State:
 
     def current_brief(self, kappa_only: bool | None = None) -> Brief:
         settings = self.settings
-        kappa = settings.kappa_only if kappa_only is None else kappa_only
+        kappa_wanted = settings.kappa_only if kappa_only is None else kappa_only
         statuses = self.tracker.statuses()
         has_token = bool(settings.token)
+        # build_brief drops the filter on a degraded flag; ask the same
+        # question here so the banner and the toggle can say why, and keep the
+        # requested value separate so we only warn about a filter you asked for.
+        kappa_available = kappa_flag_usable(self.tasks)
+        kappa = kappa_wanted and kappa_available
         level = self.tracker.player_level if has_token else 99
         faction = self.tracker.faction if has_token else "USEC"
 
@@ -322,6 +327,26 @@ class State:
                 + (f" ({overlay.error})" if overlay.error else ""),
             ))
 
+        # A token that reads fine but answers "nothing done" is almost always a
+        # game-mode mismatch: `game_mode: regular` polls `?gameMode=pvp`, so a
+        # PVE player gets their untouched PVP character back and the brief
+        # shows the whole early task tree as if the account were fresh. That
+        # looks like a broken add-on rather than a wrong setting, so it has to
+        # say so - the alternative is the user reading a plausible, complete,
+        # entirely wrong list and trusting it.
+        if has_token and self.tracker.progress is not None and not statuses:
+            other = "pve" if settings.game_mode == "regular" else "regular"
+            warnings.append(Warning_(
+                "degraded",
+                f"TarkovTracker accepted the token but reports no completed tasks "
+                f"for {settings.tracker_game_mode.upper()}, so every task below is "
+                f"being shown as if for a fresh character. If you play "
+                f"{'PVE' if other == 'pve' else 'PVP'}, set game_mode to "
+                f"'{other}' in the add-on Configuration tab. If that is not it, "
+                f"the token likely belongs to a different TarkovTracker account "
+                f"than the one you browse.",
+            ))
+
         # Loyalty gates only bite if the levels are real, and they default to 1.
         if has_token and all(v <= 1 for v in settings.trader_levels.values()):
             warnings.append(Warning_(
@@ -329,6 +354,34 @@ class State:
                 "Every trader is configured at loyalty level 1. Tasks gated behind "
                 "LL2-4 are being hidden - set your real levels under the add-on "
                 "Configuration tab to see them.",
+            ))
+
+        # The 1.x trader-progression gates. Counted across maps by task id,
+        # because a task on two maps is still one task you may not be able to
+        # accept. Always worth saying: silently listing a gated task is exactly
+        # the "why is this here, I can't take it" problem.
+        story_gated = {t.id for m in maps for t in m.tasks if t.story_gated}
+        if story_gated:
+            warnings.append(Warning_(
+                "degraded",
+                f"{len(story_gated)} task{'' if len(story_gated) == 1 else 's'} below "
+                f"also need trader progression (the 1.x rework), marked with a dot. "
+                f"Nothing publishes how far along each trader you are - not "
+                f"TarkovTracker's progress API, not the data overlay - so the add-on "
+                f"cannot check those and lists them anyway. If one is missing in game, "
+                f"that gate is why.",
+            ))
+
+        # Only worth a banner when the filter was actually asked for: with it
+        # off, a degraded flag costs you a badge nobody misses.
+        if kappa_wanted and not kappa_available:
+            warnings.append(Warning_(
+                "degraded",
+                "\"Kappa only\" is off because tarkov.dev's kappaRequired flag is "
+                "currently unusable - it marks a handful of tasks instead of the "
+                "whole Collector tree, so filtering on it would hide most of what "
+                "Kappa actually needs. Showing everything instead. This clears up "
+                "on its own when the tarkov.dev GraphQL API is back.",
             ))
 
         if self.active_source.dropped_blocks:
@@ -393,6 +446,8 @@ class State:
             ),
             game_mode=settings.game_mode,
             kappa_only=kappa,
+            kappa_available=kappa_available,
+            story_gated_tasks=len(story_gated),
             dropped_blocks=list(self.active_source.dropped_blocks),
             generated_at=now,
         )

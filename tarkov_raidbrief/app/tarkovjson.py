@@ -427,6 +427,16 @@ class TarkovJson:
                     for req in task.get("taskRequirements") or []
                     if isinstance(req, dict)
                 ],
+                # The 1.x trader-progression gates. 173 of the 516 live tasks
+                # carry these - more than carry `traderRequirements` - and they
+                # were being dropped on the floor here, which is why the brief
+                # offered tasks the game will not let you accept. Passed through
+                # raw; brief.py can only count them, not judge them. See
+                # `story_gates` there for why.
+                "otherRequirements": [
+                    req for req in task.get("otherRequirements") or []
+                    if isinstance(req, dict)
+                ],
                 # Only the taskStatus conditions matter downstream: "fails when
                 # task X is complete" marks X as a mutually exclusive branch.
                 "failConditions": [

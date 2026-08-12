@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.7.1
+
+- **Trader-progression gates are no longer dropped on the floor.** The 1.x
+  trader rework gates a large part of the task tree behind per-trader
+  progression, which the data carries as `otherRequirements` —
+  `{"type": "globalVariable", "variableId": …, "compareMethod": ">=", "value": 3}`.
+  **173 of the 516 live tasks carry one, more than carry `traderRequirements`
+  (106)**, and `tarkovjson._transform` was not copying the field, so every one
+  of those tasks was offered as though nothing gated it. That is the "it shows
+  tasks I don't have" report, and on a real Streets brief it accounted for 14
+  of 26 listed tasks.
+
+  The gates still cannot be *evaluated* — the player's side is published
+  nowhere reachable. TarkovTracker's progress API returns tasks, objectives,
+  hideout, level, edition and faction and no global variables; the 27 variable
+  ids appear nowhere in tarkov-data-overlay or in TarkovTracker's `tasks-core`
+  (which strips `otherRequirements` wholesale); and "tasks completed for this
+  trader" does not explain the thresholds. So the field is now carried through
+  and every gated task is **marked with a dot**, with a banner saying what the
+  dot means. Guessing "unmet" would hide tasks you can take; guessing "met" is
+  what the add-on was already doing by ignoring the field. Saying "I could not
+  check this one" is the honest answer, and it is the one that stops the list
+  reading as gospel.
+- **The brief now tells you when it is showing someone else's account.** The
+  add-on defaults to `game_mode: regular`, which polls TarkovTracker for your
+  **PVP** character. Play PVE and what comes back is an untouched account —
+  level 1, nothing completed — so the brief lists the whole early task tree,
+  looking like a plausible, complete and entirely wrong answer. A token that
+  reads fine but reports zero completed tasks now raises a banner naming the
+  mode it asked for and the setting to change. `tools/tracker-doctor.py` shows
+  both modes side by side when the banner isn't enough; it reads the token
+  from the environment and never prints it.
+- **"Kappa only" no longer filters on a broken flag.** tarkov.dev's
+  `kappaRequired` currently marks 16 of 516 tasks — the transitive closure of
+  Collector's own `taskRequirements`, not the Kappa list. Setup, The Punisher
+  Part 1, Wet Job Part 1 and Psycho Sniper all come back `false`, so the
+  filter was not producing a short list, it was producing a wrong one, and the
+  "K" badge was asserting that those tasks are optional. There is nowhere to
+  get the real flag while the GraphQL API is down: the data overlay does not
+  patch the field and TarkovTracker's own feed carries the same 17. So the
+  add-on now detects the degraded flag, ignores `kappa_only` while it lasts
+  (showing everything, with a banner saying why), drops the "K" badge, and
+  takes the Kappa term out of the RUN NEXT score so map ranking is not decided
+  by sixteen arbitrary tasks. It all comes back on its own when upstream
+  publishes a populated flag again.
+
 ## 1.7.0
 
 Three features, all built from data the add-on was already downloading and

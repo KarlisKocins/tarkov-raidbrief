@@ -185,10 +185,20 @@
       {% endfor %}
     </select>
   </label>
-  <a class="toggle {% if brief.kappa_only %}on{% endif %}"
-     href="?kappa_only={{ 'false' if brief.kappa_only else 'true' }}">
-    Kappa only
-  </a>
+  {# The filter is only offered when the data can back it. tarkov.dev's
+     kappaRequired currently marks ~16 tasks instead of the Collector tree, so
+     an enabled toggle would quietly hide most of Kappa. #}
+  {% if brief.kappa_available %}
+    <a class="toggle {% if brief.kappa_only %}on{% endif %}"
+       href="?kappa_only={{ 'false' if brief.kappa_only else 'true' }}">
+      Kappa only
+    </a>
+  {% else %}
+    <span class="toggle off"
+          title="tarkov.dev is not currently publishing which tasks Kappa needs">
+      Kappa only &middot; unavailable
+    </span>
+  {% endif %}
 </nav>
 
 {% if not brief.maps %}
@@ -328,6 +338,12 @@
             {% if t.wiki %}<a href="{{ t.wiki }}" target="_blank" rel="noopener">{{ t.name }}</a>
             {% else %}{{ t.name }}{% endif %}
             {% if t.kappa %}<span class="kappa" title="Required for Kappa">K</span>{% endif %}
+            {# The 1.x trader-progression gate. Nothing publishes how far along
+               each trader you are, so this task is listed but not verified -
+               the dot is the difference between "you can take this" and "I
+               could not check this one". #}
+            {% if t.story_gated %}<span class="gated"
+                 title="Also needs trader progression, which the add-on cannot check">&bull;</span>{% endif %}
           </h3>
           <div class="meta">
             <span>{{ t.trader }}</span>

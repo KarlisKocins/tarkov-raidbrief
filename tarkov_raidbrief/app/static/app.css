@@ -495,6 +495,9 @@ select:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   color: var(--bg);
   font-weight: 700;
 }
+/* Shown in place of the link when upstream cannot say what Kappa needs. */
+.toggle.off { opacity: 0.45; cursor: not-allowed; }
+.toggle.off:hover { color: inherit; border-color: inherit; }
 
 /* ---------- map ---------- */
 
@@ -718,6 +721,18 @@ ul.plain li {
   padding: 0 5px;
   background: var(--accent);
   color: var(--bg);
+  vertical-align: 1px;
+}
+
+/* Trader-progression gate we could not evaluate. Deliberately quiet: it is a
+   caveat on a task that is probably fine, not a warning about a broken one. */
+.gated {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--dim);
+  cursor: help;
   vertical-align: 1px;
 }
 

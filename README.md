@@ -52,7 +52,10 @@ what to actually **do**.
   behind a button, never applied on its own.
 - **Availability that matches TarkovTracker**, including the community
   [data overlay](#the-data-overlay--why-raw-tarkovdev-is-not-enough) the tracker
-  itself applies — so the list doesn't show quests you can't take.
+  itself applies — so the list doesn't show quests you can't take. The one gate
+  nobody can check is the 1.x
+  [trader-progression requirement](#its-showing-tasks-i-cant-take); tasks
+  carrying one are listed with a dot rather than silently vouched for.
 - **Ingress-native** — appears in the HA sidebar and the companion app, no port
   to open.
 - **Offline-tolerant** — task data and your last good progress snapshot are
@@ -71,6 +74,8 @@ no writes back to TarkovTracker.
   - [Getting a TarkovTracker token](#getting-a-tarkovtracker-token)
   - [Trader loyalty levels](#trader-loyalty-levels)
 - [Options](#options)
+  - ["It's showing tasks I can't take"](#its-showing-tasks-i-cant-take)
+  - ["It's showing tasks I have already done"](#its-showing-tasks-i-have-already-done)
 - [AI route advice (optional)](#ai-route-advice-optional)
 - [How it works](#how-it-works)
   - [Data sources — read this if tasks won't load](#data-sources--read-this-if-tasks-wont-load)
@@ -175,7 +180,7 @@ other on a number you never gave.
 | `tarkovtracker_token` | password | — | Token with `get progression`. |
 | `game_mode` | `regular` \| `pve` | `regular` | Which mode's tasks and progress to show. |
 | `refresh_minutes` | 5–1440 | `60` | How often to poll TarkovTracker in the background. |
-| `kappa_only` | bool | `false` | Show only Kappa-required tasks. Also toggleable in the UI. |
+| `kappa_only` | bool | `false` | Show only Kappa-required tasks. Also toggleable in the UI. Ignored while tarkov.dev's `kappaRequired` flag is degraded — the add-on says so on screen. |
 | `trader_levels.*` | 1–4 | `1` | Starting loyalty level per trader. The TRADER STANDING panel takes over once used; these become what **Reset** restores. |
 | `excluded_maps` | list | `[]` | Maps to hide entirely, e.g. `Icebreaker`. Useful for event maps or ones you have not unlocked. Hidden before ranking, so they can't win "Run next". |
 | `gemini_api_key` | password | — | Optional. Enables AI route advice. Empty = no AI and no third-party calls. |
@@ -184,6 +189,43 @@ other on a number you never gave.
 `game_mode` maps to `regular`/`pve` on tarkov.dev and `pvp`/`pve` on
 TarkovTracker — the two APIs name the same thing differently, and the add-on
 translates.
+
+### "It's showing tasks I can't take"
+
+Look for a **dot** beside the task name. The 1.x trader rework gates much of
+the task tree behind per-trader progression, carried in the data as
+`otherRequirements` — 173 of the 516 live tasks have one, more than have a
+trader loyalty requirement. Nothing publishes how far along each trader you
+are: TarkovTracker's progress API returns tasks, objectives, hideout, level,
+edition and faction and no global variables, and the 27 variable ids appear
+nowhere in the data overlay or in TarkovTracker's own feed. So the add-on
+cannot check those gates. It lists the task and marks it, rather than hiding
+something you might be able to take. A dotted task missing in game is that
+gate.
+
+### "It's showing tasks I have already done"
+
+Almost always `game_mode`. It defaults to `regular`, which polls TarkovTracker
+for your **PVP** character; if you play PVE, what comes back is an untouched
+account — level 1, nothing completed — and the brief dutifully lists the whole
+early task tree. It looks like a broken add-on rather than a wrong setting,
+which is why the page now says so directly: a token that reads fine but
+reports zero completed tasks raises a banner naming the mode it asked for.
+
+Check the header chips first — `Lv` and `N done` are what TarkovTracker
+actually returned. If they aren't your character, either the mode is wrong or
+the token belongs to a different TarkovTracker account than the one you browse.
+
+To see both modes side by side:
+
+```bash
+export TARKOVTRACKER_TOKEN='...'      # the same token the add-on uses
+python3 tools/tracker-doctor.py
+```
+
+It prints level, faction and completed-task counts for `pvp` and `pve` and
+names the `game_mode` to set. The token is read from the environment, never
+printed, and the call is a plain read that cannot alter your account.
 
 ---
 
@@ -444,6 +486,7 @@ ordinary code push can't silently overwrite a released tag.
 ├── repository.yaml                 # marks this as an HA add-on repository
 ├── .github/workflows/builder.yaml  # builds + pushes both arches to GHCR
 ├── tests/                          # offline checks + one live schema probe
+├── tools/tracker-doctor.py         # which game mode holds your progress
 └── tarkov_raidbrief/               # the add-on itself
     ├── config.yaml  Dockerfile  build.yaml  run.sh  requirements.txt
     ├── DOCS.md                     # rendered as the add-on's Documentation tab
