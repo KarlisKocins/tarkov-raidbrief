@@ -62,17 +62,29 @@
    thing you read while packing. #}
 {% if brief.traders %}
   {% set gated_total = brief.traders|sum(attribute='gated_tasks') %}
+  {% set suggested = brief.traders|selectattr('suggests_change')|list %}
   <section class="standing">
     <details id="standing-panel">
       <summary>
         <span class="lead">Trader standing</span>
         <span class="hint">
-          {%- if gated_total -%}
+          {%- if suggested -%}
+            {{ suggested|length }} level{{ '' if suggested|length == 1 else 's' }}
+            estimated from your completed tasks
+          {%- elif gated_total -%}
             {{ gated_total }} task{{ '' if gated_total == 1 else 's' }} locked behind loyalty
           {%- else -%}
             set your loyalty level to filter tasks you cannot accept
           {%- endif -%}
         </span>
+        {# The estimate is offered, never applied on its own: it cannot see
+           roubles spent or your edition's starting bonus, so it is an upper
+           bound the player confirms. See standing.py. #}
+        {% if suggested %}
+          <button type="button" class="apply" data-standing-derive
+                  title="Set every trader to the level your completed tasks suggest">
+            Use estimate</button>
+        {% endif %}
         <button type="button" class="reset" data-standing-reset
                 title="Go back to the levels set in the add-on options">Reset</button>
       </summary>
@@ -92,6 +104,15 @@
                 {% endif %}
                 {% if t.gated_tasks %}
                   <span class="gated">{{ t.gated_tasks }} locked</span>
+                {% endif %}
+                {# Reputation totted up from the tasks you have handed in.
+                   Shown even when it agrees with the pips, because seeing the
+                   number is how you decide whether to trust the suggestion. #}
+                {% if t.derived_reputation is not none %}
+                  <span class="derived{% if t.suggests_change %} differs{% endif %}"
+                        title="Estimated from {{ '%.2f'|format(t.derived_reputation) }} reputation earned from completed tasks. Ignores roubles spent and edition bonuses, so it can read high.">
+                    est {{ '%.2f'|format(t.derived_reputation) }}{% if t.derived_level %} &rarr; LL{{ t.derived_level }}{% endif %}
+                  </span>
                 {% endif %}
               </div>
 
@@ -185,6 +206,10 @@
     <h1 class="map-title">
       {{ m.name }}
       <span class="count">{{ m.task_count }} task{{ '' if m.task_count == 1 else 's' }}</span>
+      {# Raid length and lobby size come from the maps dataset, which was
+         already being fetched for its names alone. #}
+      {% if m.raid_duration %}<span class="count">{{ m.raid_duration }} min</span>{% endif %}
+      {% if m.players %}<span class="count">{{ m.players }} players</span>{% endif %}
       {% if m.normalized_name %}
         <a class="maplink" target="_blank" rel="noopener"
            href="https://tarkov.dev/map/{{ m.normalized_name }}">map &#8599;</a>
@@ -237,6 +262,34 @@
     </section>
     {% endif %}
 
+    {# Exits, from the same maps dataset that supplies map names. Scav-only
+       exfils are filtered out server-side; an exit a task names is pulled to
+       the front and marked, because that one is an instruction rather than a
+       choice. Empty on the GraphQL fallback, which does not fetch this. #}
+    {% if m.extracts %}
+    <section class="block exits">
+      <h2>Extracts <span class="n">{{ "%02d"|format(m.extracts|length) }}</span>
+        <span class="hint">PMC &amp; shared</span>
+      </h2>
+      <ul class="tags">
+        {% for e in m.extracts %}
+          <li class="tag{% if e.required %} required{% endif %}{% if e.faction == 'shared' %} shared{% endif %}"
+              {% if e.required %}title="A task asks you to extract here"{% endif %}>
+            {{ e.name }}
+            {%- if e.switch %}<span class="mark" title="Needs a switch thrown first">⌁</span>{% endif -%}
+          </li>
+        {% endfor %}
+      </ul>
+      {% if m.bosses %}
+        <p class="bosses">
+          {%- for b in m.bosses -%}
+            <span>{{ b.name }} <b>{{ b.percent }}%</b></span>{% if not loop.last %} {% endif %}
+          {%- endfor -%}
+        </p>
+      {% endif %}
+    </section>
+    {% endif %}
+
     {# AI text sits BELOW the authoritative lists and is visually distinct, so a
        hallucinated route can never be mistaken for the packing checklist. #}
     {% if brief.ai_enabled %}
@@ -280,6 +333,12 @@
             <span>{{ t.trader }}</span>
             <span>lvl {{ t.min_level }}</span>
             <span>{{ "{:,}".format(t.xp) }} XP</span>
+            {# Objectives already banked, per TarkovTracker. Only shown once
+               there is progress to report: "0/3" on every card is noise. #}
+            {% if t.objectives_done %}
+              <span class="done" title="Objectives already completed, per TarkovTracker">
+                {{ t.objectives_done }}/{{ t.objectives_total }} done</span>
+            {% endif %}
           </div>
           {% if t.carry or t.keys %}
             <p class="tl carry"><b>Carry</b> {{ (t.carry + t.keys)|join(', ') }}</p>

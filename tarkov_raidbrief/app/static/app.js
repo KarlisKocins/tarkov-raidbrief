@@ -185,6 +185,13 @@
         // collapse the panel out from under the click.
         event.preventDefault();
         saveStanding({ reset: true }, event.target);
+        return;
+      }
+      // Writes the levels estimated from completed tasks in as ordinary
+      // overrides, which the pips can then correct one by one.
+      if (event.target.closest("[data-standing-derive]")) {
+        event.preventDefault();
+        saveStanding({ apply_derived: true }, event.target);
       }
     });
 

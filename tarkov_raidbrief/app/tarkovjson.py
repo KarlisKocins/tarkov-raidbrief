@@ -72,6 +72,8 @@ class TarkovJson:
         self.serving_stale: str | None = None
         # Trader roster - portraits and loyalty tiers - for the standing panel.
         self.traders: list[dict] = []
+        # Per-map extracts, bosses and raid length, keyed by normalizedName.
+        self.map_details: dict[str, dict] = {}
         # Raw tarkov.dev data is missing nearly every trader loyalty gate; the
         # overlay is what makes availability match TarkovTracker. See overlay.py.
         self.overlay = Overlay(cache_path.with_name("overlay.json"), self.game_mode)
@@ -151,6 +153,8 @@ class TarkovJson:
                     "normalizedName": entry.get("normalizedName") or "",
                 }
 
+        details = self._map_details(data, tr)
+
         traders = {}
         for entry in _as_list(data.get("traders")):
             if not entry.get("id"):
@@ -181,18 +185,79 @@ class TarkovJson:
         log.info("Indexed %d items, %d quest items, %d maps, %d traders",
                  len(items), len(quest_items), len(maps), len(traders))
         return {"tr": tr, "items": items, "questItems": quest_items,
-                "maps": maps, "traders": traders}
+                "maps": maps, "traders": traders, "mapDetails": details}
+
+    @staticmethod
+    def _map_details(data: dict, tr) -> dict[str, dict]:
+        """Per-map raid context: extracts, bosses, duration, player count.
+
+        The maps dataset is already fetched for its names alone; everything
+        here is in the same payload and was being dropped on the floor. Only
+        the fields the page actually prints are kept, because the rest of it -
+        every extract's outline polygon, every loot container position - is
+        megabytes of geometry that would go into the cache file and never be
+        read. That is also why this is computed at fetch time and cached: the
+        raw dataset is not kept in memory.
+
+        Extract names arrive as translation keys ("EXFIL_ZB013" -> "ZB-013")
+        and so do mob names ("bossBully" -> "Reshala"), both resolved by the
+        maps language file. Task objectives carry the *same* raw exit keys and
+        get resolved by the tasks language file to the same strings, which is
+        what lets brief.py match an extract objective to its extract by name.
+        """
+        mobs = {
+            m["id"]: tr(m.get("name")) or (m.get("normalizedName") or "").replace("-", " ").title()
+            for m in _as_list((data.get("maps") or {}).get("mobs"))
+            if m.get("id")
+        }
+
+        out: dict[str, dict] = {}
+        for entry in _as_list((data.get("maps") or {}).get("maps")):
+            normalized = entry.get("normalizedName")
+            if not normalized:
+                continue
+
+            extracts = []
+            for ext in entry.get("extracts") or []:
+                name = tr(ext.get("name")) if isinstance(ext, dict) else None
+                if not name:
+                    continue
+                extracts.append({
+                    "name": name,
+                    "faction": (ext.get("faction") or "shared").lower(),
+                    # A switch-gated exfil is one you cannot simply walk to,
+                    # which is the single most useful thing to know in advance.
+                    "switch": bool(ext.get("switch") or ext.get("switches")),
+                })
+
+            bosses = []
+            for boss in entry.get("bosses") or []:
+                chance = boss.get("spawnChance") or 0
+                name = mobs.get(boss.get("mob"))
+                if name and chance > 0:
+                    bosses.append({"name": name, "chance": float(chance)})
+
+            out[normalized] = {
+                "extracts": sorted(extracts, key=lambda e: e["name"]),
+                # Highest spawn chance first: that is the one you plan around.
+                "bosses": sorted(bosses, key=lambda b: (-b["chance"], b["name"])),
+                "raid_duration": entry.get("raidDuration") or 0,
+                "players": entry.get("players") or "",
+            }
+        return out
 
     @staticmethod
     def _overlay_indexes(idx: dict) -> dict:
         """The id-keyed lookups the overlay needs to resolve its own refs, plus
-        the full trader roster the standing panel draws itself from."""
+        the full trader roster the standing panel draws itself from and the
+        per-map raid context the map cards print."""
         return {
             "traders": {tid: t.get("normalizedName") or ""
                         for tid, t in (idx.get("traders") or {}).items()},
             "maps": idx.get("maps") or {},
             "roster": sorted((idx.get("traders") or {}).values(),
                              key=lambda t: t["normalizedName"]),
+            "mapDetails": idx.get("mapDetails") or {},
         }
 
     # -- transformation to the GraphQL shape -------------------------------
@@ -236,6 +301,25 @@ class TarkovJson:
             if not entry:
                 return {"id": "", "name": "?", "normalizedName": "", "imageLink": ""}
             return {k: entry[k] for k in ("id", "name", "normalizedName", "imageLink")}
+
+        def reward_standing(block) -> list[dict]:
+            """The trader reputation a task pays out, trader ids resolved.
+
+            Only `traderStanding` is kept out of the whole rewards structure:
+            it is what `standing.py` adds up to estimate loyalty levels, and
+            the rest (items, offer unlocks, crafts) has no consumer here yet.
+            The overlay's own ten `finishRewards` corrections are not merged in
+            - they are written against the GraphQL reward shape, and this is a
+            deliberately narrower field.
+            """
+            out = []
+            for reward in (block or {}).get("traderStanding") or []:
+                if not isinstance(reward, dict):
+                    continue
+                name = traders.get(reward.get("trader"), {}).get("normalizedName")
+                if name and reward.get("standing"):
+                    out.append({"trader": name, "standing": reward["standing"]})
+            return out
 
         out: list[dict] = []
         for task in _as_list((data.get("tasks") or {}).get("tasks")):
@@ -334,6 +418,10 @@ class TarkovJson:
                 "wikiLink": task.get("wikiLink"),
                 "trader": trader_ref(task.get("trader")),
                 "map": maps.get(task.get("map")),
+                # Reputation this task pays on completion, and what it costs
+                # you if you fail it - the two halves of the standing estimate.
+                "rewardStanding": reward_standing(task.get("finishRewards")),
+                "failStanding": reward_standing(task.get("failureOutcome")),
                 "taskRequirements": [
                     {"task": {"id": req.get("task")}, "status": req.get("status") or []}
                     for req in task.get("taskRequirements") or []
@@ -399,12 +487,14 @@ class TarkovJson:
         return self._serve(blob), fetched, []
 
     def _serve(self, blob: dict) -> list[dict]:
-        """Publish the trader roster and hand back the overlay-corrected tasks.
+        """Publish the trader roster and map details, and hand back the
+        overlay-corrected tasks.
 
         Every return path in get_tasks goes through here, fresh or cached, so
-        the roster can never be left behind from an earlier fetch.
+        neither side table can be left behind from an earlier fetch.
         """
         self.traders = blob.get("roster") or []
+        self.map_details = blob.get("mapDetails") or {}
         return self.overlay.apply(blob["tasks"], blob.get("traders"), blob.get("maps"))
 
     # -- cache -------------------------------------------------------------
@@ -416,16 +506,16 @@ class TarkovJson:
             return None
         if not isinstance(blob.get("tasks"), list) or not blob["tasks"]:
             return None
-        # "json-v3" caches carry the trader/map id indexes the overlay needs
-        # plus the trader roster; each bump discards the older shape rather
-        # than serving half of it.
-        if blob.get("game_mode") != self.game_mode or blob.get("source") != "json-v3":
+        # "json-v4" caches carry the trader/map id indexes the overlay needs,
+        # the trader roster, per-task reward standing and the per-map details;
+        # each bump discards the older shape rather than serving half of it.
+        if blob.get("game_mode") != self.game_mode or blob.get("source") != "json-v4":
             return None
         blob.setdefault("fetched", 0.0)
         return blob
 
     def _write_cache(self, blob: dict) -> None:
-        payload = {"game_mode": self.game_mode, "source": "json-v3", **blob}
+        payload = {"game_mode": self.game_mode, "source": "json-v4", **blob}
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_path.with_suffix(".tmp")

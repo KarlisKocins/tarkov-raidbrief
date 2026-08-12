@@ -1,12 +1,33 @@
-"""Where your trader standing lives.
+"""Where your trader standing lives, and the estimate that fills it in for you.
 
-Loyalty level is the one input the tool cannot get from anywhere: tarkov.dev
-knows what each task *demands*, and TarkovTracker's `/progress` reports levels,
+Loyalty level is the one input the tool cannot read directly: tarkov.dev knows
+what each task *demands*, and TarkovTracker's `/progress` reports levels,
 factions and task records but not trader standing. Before this module it came
 from the add-on's Configuration tab alone, which meant restarting the add-on
 after every trader level-up.
 
-So the panel writes here instead, and the add-on options become the seed:
+It can, however, be *estimated*. Nearly every point of PMC trader reputation
+comes from handing in tasks, and the task data says exactly how much each one
+pays (`finishRewards.traderStanding`, present on 366 of the 516 live tasks).
+Summing that over the tasks TarkovTracker says you have completed gives a
+reputation figure, and each trader's own loyalty tiers say what reputation and
+player level unlock which level. That is `derive_reputations` and
+`derive_level` below.
+
+The estimate is deliberately **advisory only** - shown in the panel with an
+Apply button, never fed straight into availability. Three things it cannot see:
+
+* `requiredCommerce`. Loyalty needs roubles spent as well as reputation, and
+  nothing in either API reports it, so a derived level is an upper bound.
+* Game edition starting bonuses (EOD and Unheard begin above zero).
+* Fence, whose standing moves on scav karma - kills, insurance returns, extract
+  behaviour - and barely at all on tasks. It is excluded outright.
+
+Enforcing a number with those holes in it would hide tasks on arithmetic
+nobody checked, which is the exact failure this add-on's overlay exists to
+prevent. Suggesting one costs nothing and saves the player ten fields of typing.
+
+The panel writes here, and the add-on options become the seed:
 
 * the options are the starting point, used until the panel is touched;
 * once it is, `standing.json` in /data holds the answer and outranks them,
@@ -22,6 +43,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from pathlib import Path
 
 from .models import DEFAULT_TRADER_LEVEL
@@ -37,8 +59,68 @@ LEVEL_RANGE = (0, 4)
 REP_RANGE = (-99.0, 99.0)
 
 
+# Traders whose reputation does not come from handing in tasks. Fence moves on
+# scav karma, so a quest-derived figure for them would be confidently wrong -
+# and their rep gates run *downwards* (the "Compensation for Damage" chain
+# wants standing below a threshold), so a wrong number there hides tasks.
+NO_QUEST_REP = frozenset({"fence"})
+
+
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
+
+
+def derive_reputations(tasks: list[dict], statuses: dict[str, str]) -> dict[str, float]:
+    """Estimate each trader's reputation from the tasks already handed in.
+
+    Completed tasks pay their `rewardStanding`; failed ones pay the
+    `failStanding` penalty instead, which is how the chains you can fail
+    (Fence's, and the Chemical branch) land the right way round. Tasks the
+    tracker has not recorded contribute nothing, so a fresh account estimates
+    at zero across the board - correct, barring the edition bonus noted above.
+    """
+    reps: dict[str, float] = defaultdict(float)
+    for task in tasks:
+        status = statuses.get(task.get("id") or "")
+        if status == "complete":
+            rewards = task.get("rewardStanding") or []
+        elif status == "failed":
+            rewards = task.get("failStanding") or []
+        else:
+            continue
+        for reward in rewards:
+            trader = reward.get("trader")
+            if trader and trader not in NO_QUEST_REP:
+                try:
+                    reps[trader] += float(reward.get("standing") or 0)
+                except (TypeError, ValueError):
+                    continue
+    # Every trader a completed task touched is reported, including one whose
+    # gains and losses cancel out: a net of zero is a reputation we computed,
+    # not a reputation we failed to compute, and the difference is what the
+    # panel shows. Traders no completed task mentions are simply absent, and
+    # get no estimate at all. `+ 0.0` normalises round()'s negative zero, which
+    # would otherwise print as "-0.00".
+    #
+    # Rounded to the two decimals the game shows, which are also the two the
+    # panel's rep field round-trips, so applying an estimate is idempotent.
+    return {trader: round(value, 2) + 0.0 for trader, value in reps.items()}
+
+
+def derive_level(levels: list, reputation: float, player_level: int) -> int:
+    """The highest loyalty tier this reputation and player level could unlock.
+
+    `levels` is a trader's tier list - objects with `.level`, `.reputation` and
+    `.player_level`. An upper bound, because `requiredCommerce` is invisible to
+    both APIs: a player with the reputation but not the spend sits one tier
+    lower than this says, which is why the caller offers it rather than
+    applying it.
+    """
+    best = 0
+    for tier in levels or []:
+        if reputation + 1e-9 >= (tier.reputation or 0) and player_level >= (tier.player_level or 0):
+            best = max(best, tier.level)
+    return best
 
 
 class Standing:

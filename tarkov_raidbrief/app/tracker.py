@@ -13,6 +13,14 @@ That array's key is a trap. The published OpenAPI spec calls it `taskProgress`;
 the live API actually returns `tasksProgress`. Verified against the real
 endpoint, which answered with `tasksProgress`. Both spellings are accepted
 below so whichever way they settle it, this keeps working.
+
+The same response also carries `taskObjectivesProgress` - one
+`{id, complete, count, invalid}` record per objective, where `count` is only
+sent once it is above zero. It costs nothing extra to read (same request, same
+bytes) and it is what stops the brief from listing objectives you have already
+done, so it is parsed here alongside the task array. Objective ids are the same
+ids tarkov.dev puts on `task.objectives[].id`, which is what makes the join in
+brief.py a dictionary lookup rather than a guess.
 """
 
 from __future__ import annotations
@@ -33,13 +41,18 @@ USER_AGENT = "tarkov-raidbrief/1.0 (Home Assistant add-on)"
 MIN_POLL_SECONDS = 60
 
 
-def _task_entries(progress: dict) -> list[dict]:
-    """The per-task progress array, under whichever key this deployment uses."""
-    for key in ("tasksProgress", "taskProgress"):
+def _entries(progress: dict, *keys: str) -> list[dict]:
+    """The first of `keys` that holds a list of records, as dicts."""
+    for key in keys:
         value = progress.get(key)
         if isinstance(value, list):
             return [e for e in value if isinstance(e, dict)]
     return []
+
+
+def _task_entries(progress: dict) -> list[dict]:
+    """The per-task progress array, under whichever key this deployment uses."""
+    return _entries(progress, "tasksProgress", "taskProgress")
 
 
 class TrackerAuthError(RuntimeError):
@@ -145,9 +158,10 @@ class Tracker:
         self.progress = data
         self.fetched_at = time.time()
         self._save_state()
-        log.info("TarkovTracker: level %s %s, %d task records",
+        log.info("TarkovTracker: level %s %s, %d task records, %d objective records",
                  data.get("playerLevel"), data.get("pmcFaction"),
-                 len(_task_entries(data)))
+                 len(_task_entries(data)),
+                 len(_entries(data, "taskObjectivesProgress")))
         return self.progress
 
     # -- derived views -----------------------------------------------------
@@ -170,6 +184,33 @@ class Tracker:
                 out[tid] = "complete"
             elif entry.get("invalid"):
                 out[tid] = "invalid"
+        return out
+
+    def objectives(self) -> dict[str, dict]:
+        """Map objective id -> `{"done": bool, "count": int}`.
+
+        `done` folds `complete` and `invalid` together: an invalid objective is
+        one this character can no longer do (the branch it belonged to went the
+        other way), and neither kind belongs on a packing list.
+
+        `count` is how many of a counted objective are already banked. The API
+        only sends it when it is above zero, so an absent count is zero, not
+        unknown - which is what lets brief.py subtract it without having to ask
+        whether the field was reported.
+        """
+        out: dict[str, dict] = {}
+        for entry in _entries(self.progress or {}, "taskObjectivesProgress"):
+            oid = entry.get("id")
+            if not oid:
+                continue
+            try:
+                count = int(entry.get("count") or 0)
+            except (TypeError, ValueError):
+                count = 0
+            out[oid] = {
+                "done": bool(entry.get("complete")) or bool(entry.get("invalid")),
+                "count": max(0, count),
+            }
         return out
 
     @property

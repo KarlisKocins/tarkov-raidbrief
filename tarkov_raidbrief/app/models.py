@@ -113,6 +113,12 @@ class TaskBrief:
     # Portrait of the trader who hands the task out. Empty when the data
     # source supplied none, and the row then shows the name alone.
     trader_image: str = ""
+    # Objectives TarkovTracker reports as done, out of the task's total - the
+    # whole task, not just this map's share, because "4/7" is a statement about
+    # the task and would be meaningless split across two map cards. Both are 0
+    # without a token, which the template reads as "nothing to say".
+    objectives_done: int = 0
+    objectives_total: int = 0
 
 
 @dataclass
@@ -152,6 +158,18 @@ class TraderInfo:
     # they do: a rep gate enforced against an assumed 0.0 would hide tasks on
     # a number nobody supplied.
     reputation_known: bool = False
+    # What the completed-task rewards add up to for this trader, and the
+    # loyalty tier that reputation could unlock. Advisory: the panel offers
+    # them behind an Apply button and nothing else reads them, because the
+    # estimate cannot see roubles spent or edition bonuses. See standing.py.
+    # None/0 mean "no estimate" - no token, or a trader tasks never pay.
+    derived_reputation: float | None = None
+    derived_level: int = 0
+
+    @property
+    def suggests_change(self) -> bool:
+        """True when the estimate disagrees with what the panel currently holds."""
+        return bool(self.derived_level) and self.derived_level != self.level
 
     @property
     def min_level(self) -> int:
@@ -163,6 +181,28 @@ class TraderInfo:
 
 
 @dataclass
+class ExtractInfo:
+    """One way off the map, as the extract panel lists it."""
+
+    name: str
+    faction: str = "shared"
+    # Switch-gated exfils (Customs ZB-013, Reserve's) need a lever thrown first.
+    switch: bool = False
+    # True when a task on this map asks you to leave by this exit specifically.
+    required: bool = False
+
+
+@dataclass
+class BossInfo:
+    name: str
+    chance: float = 0.0
+
+    @property
+    def percent(self) -> int:
+        return round(self.chance * 100)
+
+
+@dataclass
 class MapBrief:
     name: str
     normalized_name: str
@@ -170,6 +210,12 @@ class MapBrief:
     carry: list[str] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
     loot: list[str] = field(default_factory=list)
+    # Raid context from the maps dataset. Empty on the GraphQL fallback, which
+    # does not fetch it, so the template treats all four as optional.
+    extracts: list[ExtractInfo] = field(default_factory=list)
+    bosses: list[BossInfo] = field(default_factory=list)
+    raid_duration: int = 0
+    players: str = ""
     # Display label -> item icon URL, for every label naming exactly one item.
     # Keyed by label so the same string draws the same icon whether it appears
     # in a map list or on a task line.

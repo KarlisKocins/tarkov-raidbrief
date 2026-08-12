@@ -223,6 +223,14 @@ class TarkovDev:
         # Set whenever we served the cache because the API would not answer, so
         # the UI can say so even while the cache is still inside its TTL.
         self.serving_stale: str | None = None
+        # Side tables the JSON client fills from datasets this query does not
+        # ask for. Defined empty rather than absent because main.py reads them
+        # off whichever source is active, and an attribute that exists on one
+        # client and not the other turns a degraded fallback into a 500.
+        # Costs the standing panel its portraits and loyalty tiers, and the map
+        # cards their extracts - not the brief.
+        self.traders: list[dict] = []
+        self.map_details: dict[str, dict] = {}
         self._introspected = False
         # Same corrections as the JSON path - the overlay is keyed on task id,
         # so it applies to whichever source produced them. GraphQL already

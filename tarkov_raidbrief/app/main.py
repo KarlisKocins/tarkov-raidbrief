@@ -41,7 +41,7 @@ from .models import (
     Warning_,
 )
 from .recommend import score_maps
-from .standing import Standing
+from .standing import Standing, derive_level, derive_reputations
 from .tarkovdev import CACHE_TTL, TarkovDev, TarkovDevError
 from .tarkovjson import TarkovJson, TarkovJsonError
 from .tracker import Tracker, TrackerAuthError, TrackerRateLimited, TrackerUnavailable
@@ -180,6 +180,14 @@ class State:
         if not gating:
             return []
 
+        # Estimated from the reputation the completed tasks paid out. Only
+        # offered when there is a token: with no progress every trader
+        # estimates at zero, and suggesting "you are LL1 everywhere" to
+        # someone the app is already treating as level 99 is noise.
+        derived = (
+            derive_reputations(self.tasks, statuses) if self.settings.token else {}
+        )
+
         blocked = locked_by_trader(
             self.tasks, statuses, level, faction, self.standing.levels,
             self.settings.game_mode, self.standing.reputations,
@@ -199,7 +207,7 @@ class State:
 
         roster = [
             self._trader_info(name, kind, known.get(name) or from_tasks.get(name) or {},
-                              blocked.get(name, 0))
+                              blocked.get(name, 0), derived.get(name), level)
             for name, kind in gating.items()
         ]
         # The game's own trader order, which players already navigate by. Not
@@ -212,7 +220,17 @@ class State:
         roster.sort(key=lambda t: (order.get(t.normalized_name, len(order)), t.name))
         return roster
 
-    def _trader_info(self, name: str, kind: str, entry: dict, gated: int) -> TraderInfo:
+    def _trader_info(self, name: str, kind: str, entry: dict, gated: int,
+                     derived_rep: float | None = None,
+                     player_level: int = 0) -> TraderInfo:
+        levels = [
+            TraderLevelInfo(
+                level=lvl["level"],
+                player_level=lvl.get("player_level") or 0,
+                reputation=lvl.get("reputation") or 0.0,
+            )
+            for lvl in entry.get("levels") or []
+        ]
         return TraderInfo(
             id=entry.get("id") or name,
             name=entry.get("name") or name.replace("-", " ").title(),
@@ -220,17 +238,18 @@ class State:
             image=entry.get("imageLink") or "",
             level=self.standing.level(name),
             reputation=self.standing.reputation(name),
-            levels=[
-                TraderLevelInfo(
-                    level=lvl["level"],
-                    player_level=lvl.get("player_level") or 0,
-                    reputation=lvl.get("reputation") or 0.0,
-                )
-                for lvl in entry.get("levels") or []
-            ],
+            levels=levels,
             gated_tasks=gated,
             tracks_reputation=kind == "reputation",
             reputation_known=name in self.standing.reputations,
+            derived_reputation=derived_rep,
+            # A trader whose tiers we never fetched (the GraphQL fallback
+            # supplies no roster) has nothing to map a reputation onto, so the
+            # estimate stops at the reputation itself.
+            derived_level=(
+                derive_level(levels, derived_rep, player_level)
+                if derived_rep is not None and levels else 0
+            ),
         )
 
     # -- brief -------------------------------------------------------------
@@ -252,6 +271,8 @@ class State:
             kappa_only=kappa,
             game_mode=settings.game_mode,
             trader_reps=self.standing.reputations,
+            objective_progress=self.tracker.objectives() if has_token else None,
+            map_details=self.active_source.map_details,
         )
 
         # Hidden maps are dropped before scoring, so an event map you cannot
@@ -515,7 +536,9 @@ async def api_trader_standing(request: Request) -> JSONResponse:
     Body is `{"levels": {"prapor": 3}, "reputations": {"fence": -2.5}}`, both
     optional and both partial - the panel sends only what changed. `{"reset":
     true}` throws the overrides away and hands control back to the add-on
-    options.
+    options. `{"apply_derived": true}` takes the estimate computed from your
+    completed tasks and writes it in as if you had set every pip by hand -
+    after which it is an ordinary override you can correct.
 
     Every value here changes which tasks are available, so this reports the
     recomputed totals and the page reloads rather than trying to patch the
@@ -531,6 +554,22 @@ async def api_trader_standing(request: Request) -> JSONResponse:
 
     if body.get("reset"):
         state.standing.reset()
+    elif body.get("apply_derived"):
+        # Only the loyalty levels are applied. The reputations behind them are
+        # an estimate that ignores scav karma and edition bonuses, and writing
+        # one into the rep field would switch on a gate that is deliberately
+        # off until the player supplies a real number.
+        levels = {
+            t.normalized_name: t.derived_level
+            for t in state.current_brief().traders if t.derived_level
+        }
+        if not levels:
+            return JSONResponse(
+                {"error": "No estimate available - a TarkovTracker token with some "
+                          "completed tasks is what it is derived from."},
+                status_code=400,
+            )
+        state.standing.update(levels, None)
     else:
         levels = body.get("levels") if isinstance(body.get("levels"), dict) else None
         reputations = (

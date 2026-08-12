@@ -34,7 +34,9 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 
-from .models import ANY_MAP, DEFAULT_TRADER_LEVEL, Brief, MapBrief, TaskBrief
+from .models import (
+    ANY_MAP, DEFAULT_TRADER_LEVEL, BossInfo, Brief, ExtractInfo, MapBrief, TaskBrief,
+)
 
 log = logging.getLogger("raidbrief.brief")
 
@@ -110,7 +112,17 @@ def any_of(items: list[dict], limit: int = 4) -> str:
     return f"{' / '.join(names[:limit])} (+{len(names) - limit} more)"
 
 
-def _counted(text: str, count: int) -> str:
+def _counted(text: str, count: int, banked: int = 0) -> str:
+    """Render a quantity, netting off what the tracker says you already have.
+
+    A counted objective you are part-way through wants the number you still
+    need, not the number the quest asks for - "Bandage x3 (2/5 done)" is a
+    packing instruction, "Bandage x5" is a lie you have to do arithmetic on.
+    The total stays in the label because it is what the wiki and the in-game
+    task screen show, so the line still matches what you are looking at.
+    """
+    if banked and count and banked < count:
+        return f"{text} x{count - banked} ({banked}/{count} done)"
     return f"{text} x{count}" if count and count > 1 else text
 
 
@@ -442,10 +454,18 @@ def _conditions(obj: dict) -> list[str]:
     return bits
 
 
-def parse_objective(obj: dict) -> dict:
-    """Classify one objective into carry-in / keys / bring-out / do."""
+def parse_objective(obj: dict, progress: dict | None = None) -> dict:
+    """Classify one objective into carry-in / keys / bring-out / do.
+
+    `progress` is this objective's record from TarkovTracker - `{"done": bool,
+    "count": int}` - or None when there is no token. Only the count is used
+    here; a finished objective never reaches this function, because build_brief
+    drops it before classifying (a completed objective's key is not a key you
+    still need to bring).
+    """
     otype = obj.get("type") or ""
     count = obj.get("count") or 1
+    banked = int((progress or {}).get("count") or 0)
     carry: list[str] = []
     loot: list[str] = []
     do: list[str] = []
@@ -466,7 +486,8 @@ def parse_objective(obj: dict) -> dict:
         items = obj.get("items") or []
         target = any_of(items) or label(obj.get("questItem"))
         if target and target != "?":
-            carry.append(named(_counted(target, count), only(items) or obj.get("questItem")))
+            carry.append(named(_counted(target, count, banked),
+                               only(items) or obj.get("questItem")))
 
     elif otype == "mark":
         marker = obj.get("markerItem")
@@ -488,7 +509,7 @@ def parse_objective(obj: dict) -> dict:
     elif otype == "useItem":
         options = obj.get("useAny") or []
         if options:
-            carry.append(named(_counted(any_of(options), count), only(options)))
+            carry.append(named(_counted(any_of(options), count, banked), only(options)))
 
     elif otype in LOOT_TYPES or otype in CONDITIONAL_LOOT_TYPES:
         fir = bool(obj.get("foundInRaid")) or otype in ("findQuestItem", "giveQuestItem")
@@ -496,7 +517,7 @@ def parse_objective(obj: dict) -> dict:
         target = any_of(items) or label(obj.get("questItem"))
         if target and target != "?" and (otype in LOOT_TYPES or fir):
             suffix = " (FiR)" if fir else ""
-            loot.append(named(f"{_counted(target, count)}{suffix}",
+            loot.append(named(f"{_counted(target, count, banked)}{suffix}",
                               only(items) or obj.get("questItem")))
 
     elif otype == "shoot":
@@ -507,12 +528,22 @@ def parse_objective(obj: dict) -> dict:
 
     description = (obj.get("description") or otype or "objective").strip()
     conditions = _conditions(obj)
+    # Progress reads as one more qualifier on the line, which keeps it in the
+    # same parenthesis as "at Dorms" rather than growing a second decoration.
+    if banked and count > 1:
+        conditions.append(f"{banked}/{count} done")
     if conditions:
         description = f"{description} ({'; '.join(conditions)})"
     if obj.get("optional"):
         description = f"[optional] {description}"
 
     do.insert(0, description)
+
+    # The exit an extract objective names, kept so the map's extract panel can
+    # point at it. Both sides of this comparison are display names resolved
+    # from the same underlying key by their own language file - see
+    # TarkovJson._map_details.
+    exits = [obj["exitName"]] if otype == "extract" and obj.get("exitName") else []
 
     return {
         "type": otype,
@@ -521,6 +552,7 @@ def parse_objective(obj: dict) -> dict:
         "loot": loot,
         "do": do,
         "icons": icons,
+        "exits": exits,
         "optional": bool(obj.get("optional")),
     }
 
@@ -540,6 +572,52 @@ def is_raid_relevant(info: dict) -> bool:
 # --------------------------------------------------------------------------
 # assembly
 # --------------------------------------------------------------------------
+
+# Extracts a PMC can use. Scav-only exfils are dropped: the brief is built from
+# your PMC's task list, and offering an exit you cannot take from the raid you
+# are packing for is worse than offering none. A scav exit a task names anyway
+# is kept - see _extracts, where "required" overrides the filter.
+PMC_EXTRACT_FACTIONS = ("pmc", "shared")
+
+
+def _extracts(detail: dict, wanted: set[str]) -> list[ExtractInfo]:
+    """The extract list for one map, filtered to this raid and flagged.
+
+    `wanted` holds the exit names this map's remaining extract objectives call
+    for; those sort to the top and get marked, because "leave by ZB-013" is a
+    task instruction and the rest of the list is reference material.
+    """
+    lowered = {w.strip().lower() for w in wanted if w}
+    out = []
+    for ext in detail.get("extracts") or []:
+        name = ext.get("name") or ""
+        required = name.strip().lower() in lowered
+        if not required and ext.get("faction") not in PMC_EXTRACT_FACTIONS:
+            continue
+        out.append(ExtractInfo(
+            name=name,
+            faction=ext.get("faction") or "shared",
+            switch=bool(ext.get("switch")),
+            required=required,
+        ))
+    out.sort(key=lambda e: (not e.required, e.name))
+    return out
+
+
+def _context(detail: dict, wanted: set[str]) -> dict:
+    """The raid-context fields of a MapBrief, as keyword arguments.
+
+    "Any map" and anything the maps dataset does not cover get an empty detail
+    dict and so come back with all four fields at their defaults.
+    """
+    return {
+        "extracts": _extracts(detail, wanted),
+        "bosses": [BossInfo(name=b["name"], chance=b["chance"])
+                   for b in detail.get("bosses") or []],
+        "raid_duration": detail.get("raid_duration") or 0,
+        "players": detail.get("players") or "",
+    }
+
 
 class _MaxedTraders(dict):
     """Trader levels for the "if standing were no object" pass below."""
@@ -581,11 +659,32 @@ def locked_by_trader(tasks: list[dict], statuses: dict[str, str], level: int, fa
 def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction: str,
                 trader_levels: dict[str, int], kappa_only: bool = False,
                 game_mode: str = "regular",
-                trader_reps: dict[str, float] | None = None) -> list[MapBrief]:
-    """Group every available task's objectives by the map they happen on."""
+                trader_reps: dict[str, float] | None = None,
+                objective_progress: dict[str, dict] | None = None,
+                map_details: dict[str, dict] | None = None) -> list[MapBrief]:
+    """Group every available task's objectives by the map they happen on.
+
+    `objective_progress` is `Tracker.objectives()` - objective id -> `{"done",
+    "count"}`. Objectives it reports as done are dropped before anything is
+    classified, so a task you are part-way through contributes only what is
+    left of it: no keys you have finished with, no items already in the stash,
+    and no map placement earned by an objective you closed out last raid.
+    That last one matters beyond tidiness - `recommend.py` decides a task is
+    finishable in one raid by looking at how many maps it touches, so a task
+    whose remaining work is all on Customs now scores as finishable there.
+
+    Without a token the dict is empty and every objective survives, which is
+    the pre-token behaviour unchanged.
+
+    `map_details` is the per-map raid context from the maps dataset, keyed by
+    normalizedName; absent (the GraphQL fallback) it simply leaves those
+    fields empty on every MapBrief.
+    """
+    progress = objective_progress or {}
+    details = map_details or {}
     buckets: dict[str, dict] = defaultdict(
         lambda: {"normalized": "", "tasks": [], "carry": set(), "keys": set(),
-                 "loot": set(), "icons": {}}
+                 "loot": set(), "icons": {}, "exits": set()}
     )
 
     is_available = Availability(tasks, statuses, level, faction, trader_levels,
@@ -597,11 +696,18 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
         if not is_available(task):
             continue
 
+        objectives = task.get("objectives") or []
+        done_count = sum(1 for o in objectives
+                         if progress.get(o.get("id") or "", {}).get("done"))
+
         # A task lands on a map only if it has an objective to do there, and
         # each copy shows that map's objectives alone.
         per_map: dict[str, list[dict]] = defaultdict(list)
-        for obj in task.get("objectives") or []:
-            info = parse_objective(obj)
+        for obj in objectives:
+            state = progress.get(obj.get("id") or "")
+            if state and state.get("done"):
+                continue
+            info = parse_objective(obj, state)
             if not is_raid_relevant(info):
                 continue
             for map_name in objective_maps(obj, task):
@@ -621,6 +727,8 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
                 loot=sorted({l for i in infos for l in i["loot"]}),
                 do=[d for i in infos for d in i["do"]],
                 trader_image=(task.get("trader") or {}).get("imageLink") or "",
+                objectives_done=done_count,
+                objectives_total=len(objectives),
             )
 
             bucket = buckets[map_name]
@@ -630,6 +738,7 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
             bucket["loot"].update(entry.loot)
             for info in infos:
                 bucket["icons"].update(info["icons"])
+                bucket["exits"].update(info["exits"])
 
             map_obj = next(
                 (m for o in task.get("objectives") or []
@@ -648,6 +757,7 @@ def build_brief(tasks: list[dict], statuses: dict[str, str], level: int, faction
             keys=sorted(data["keys"]),
             loot=sorted(data["loot"]),
             icons=data["icons"],
+            **_context(details.get(data["normalized"]) or {}, data["exits"]),
         )
         for name, data in buckets.items()
     ]

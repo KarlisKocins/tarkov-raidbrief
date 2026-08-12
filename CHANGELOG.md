@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.7.0
+
+Three features, all built from data the add-on was already downloading and
+throwing away — no new upstream, no extra requests.
+
+- **The brief now knows which objectives you have already done.** The
+  TarkovTracker response carried `taskObjectivesProgress` all along and the
+  add-on read only the task-level records out of it. It now reads both, so a
+  task you are part-way through contributes only what is *left* of it: no keys
+  you have finished with, no items already in the stash, and no map placement
+  earned by an objective you closed out last raid. Counted objectives show
+  what remains rather than what the quest asked for — "Bandage x3 (2/5 done)"
+  — and each task card carries its own "4/7 done".
+- **…which also fixes the RUN NEXT ranking.** A map's score turns on how many
+  tasks are *finishable there in one raid*, and that was judged on every
+  objective a task had ever had. A task whose remaining work is all on Customs
+  now counts as finishable on Customs, which is what you would have said
+  yourself looking at the same list.
+- **EXTRACTS panel per map.** Every exit a PMC can use, with switch-gated ones
+  marked and any exit a task specifically names pulled to the front in the
+  accent colour. Scav-only exfils are filtered out. The map header also gains
+  raid length and lobby size, and the panel lists boss spawn chances. All of
+  it comes from the `maps` dataset the add-on already fetched for map names.
+- **Trader standing is now estimated for you.** 366 of the 516 live tasks say
+  exactly how much reputation they pay, so the completed ones add up to a
+  reputation figure, and each trader's loyalty tiers turn that into a level.
+  The panel shows the estimate beside each trader and a **Use estimate**
+  button fills the whole roster in at once. It is *offered, never applied on
+  its own*: the figure cannot see roubles spent (`requiredCommerce`) or your
+  edition's starting bonus, so it is an upper bound you confirm — and Fence is
+  excluded outright, since their standing comes from scav karma rather than
+  tasks. Applied levels are ordinary overrides you can then correct pip by pip.
+- Fixed: the GraphQL fallback had no trader roster attribute at all, so if the
+  JSON API had failed while GraphQL was up, the trader panel would have taken
+  the page down with it. Both side tables now exist on either client, empty on
+  the fallback.
+- The task cache format is now `json-v4`, carrying per-map extracts and the
+  per-task reward standing. The first start after updating refetches rather
+  than serving a cache with half the new fields missing.
+
 ## 1.6.0
 
 Trader standing moves into the page, and the packing lists get item icons.

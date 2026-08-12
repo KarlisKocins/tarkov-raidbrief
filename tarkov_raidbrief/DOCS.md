@@ -16,11 +16,13 @@ memory reading, no injection, no in-game overlay.
    permission. This add-on never writes, so that's the only one it needs.
 2. Paste it into `tarkovtracker_token` below and **Start** the add-on.
 3. Set your trader loyalty levels in the **TRADER STANDING** panel at the top
-   of the page — the progress API does not expose them, so they have to be
-   entered by hand. They're used to hide tasks you can't unlock yet, and
-   roughly half of all tasks carry a loyalty requirement, so leaving them all
-   at `1` hides a lot. The panel says how many tasks each trader is holding
-   back, so you can see at a glance which one is worth levelling.
+   of the page — the progress API does not expose them. Easiest way: press
+   **Use estimate**, which fills the whole roster in from the reputation your
+   completed tasks paid out, then correct any trader that reads wrong. They're
+   used to hide tasks you can't unlock yet, and roughly half of all tasks
+   carry a loyalty requirement, so leaving them all at `1` hides a lot. The
+   panel says how many tasks each trader is holding back, so you can see at a
+   glance which one is worth levelling.
 
 Without a token the add-on still runs, showing every task as if for a maxed
 character, with a banner saying so.
@@ -53,6 +55,13 @@ loyalty level, so you set it here.
   unenforced until you fill it in: the Fence "Compensation for Damage" chain
   wants your standing *below* a threshold, so guessing at 0.00 would hide
   tasks in one direction or the other on a number you never gave.
+- **Use estimate** — each trader shows `est 2.70 → LL3`, added up from the
+  reputation the tasks you've completed paid out; the button applies the lot.
+  It's a suggestion, not a reading: loyalty also needs roubles spent with the
+  trader, which no API reports, and EOD/Unheard start above zero reputation —
+  so it can read one tier high. Fence is left out entirely, since their
+  standing comes from scav karma rather than tasks. Applying it just writes
+  normal overrides, so you can fix any trader afterwards by clicking a pip.
 - **Reset** goes back to the `trader_levels` in the Configuration tab.
 
 Your answers live in `/data/standing.json` and survive restarts and updates.
@@ -84,12 +93,20 @@ tarkov.dev and TarkovTracker only.
   secure container.
 - **BRING OUT** is what you're looting, with `(FiR)` marked where the item must
   be Found In Raid.
+- **EXTRACTS** lists every exit a PMC can use on that map. An exit a task
+  specifically asks for is pulled to the front and highlighted; `⌁` means the
+  exit needs a switch thrown first. Scav-only exfils aren't listed. Underneath
+  it, boss spawn chances; in the map header, raid length and lobby size.
 - Each task links to its wiki page; each map links to the tarkov.dev map.
 
 ## Notes
 
 - A task with objectives on several maps appears under each map, showing only
   that map's objectives.
+- Objectives you've already completed are dropped, along with the keys and map
+  placements they justified, so a task you're part-way through shows only what
+  is left. Counted objectives show the remainder: `Bandage x3 (2/5 done)`.
+  This needs a token; without one every objective is listed.
 - Tasks with no map anywhere are grouped under **Any map**.
 - Task data is cached for 24 hours and survives restarts. If tarkov.dev is
   unreachable you get the cached copy plus a staleness banner.

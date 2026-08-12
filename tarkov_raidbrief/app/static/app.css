@@ -226,6 +226,16 @@ button:active { transform: translateY(1px); }
   white-space: nowrap;
 }
 .standing .reset { margin-left: auto; flex: none; padding: 2px 8px; font-size: 11px; }
+/* Sits left of Reset and takes the auto margin from it when both are present. */
+.standing .apply {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.standing .apply + .reset { margin-left: 6px; }
 
 /* One hairline grid, so the traders read as a table rather than nine cards. */
 .standing .traders {
@@ -270,6 +280,12 @@ button:active { transform: translateY(1px); }
 /* How many tasks this one trader is holding back — the number that tells you
    which trader to level next, so it gets the accent rather than the grey. */
 .trader .gated { color: var(--accent); }
+
+/* The estimate from completed tasks. Stays grey while it agrees with the pips
+   — it is then just corroboration — and only lights up where it disagrees,
+   which is the row worth looking at. */
+.trader .derived { color: var(--dimmer); cursor: help; }
+.trader .derived.differs { color: var(--loot-text); }
 
 .trader .pips { display: flex; gap: 3px; }
 .trader .pip {
@@ -564,6 +580,46 @@ main { padding: 0 14px 32px; }
 .block.out { border-color: var(--loot-line); }
 .block.out h2 { color: var(--loot); border-bottom-color: var(--loot-line); }
 
+/* Extracts are reference material, not a checklist, so they are laid out as a
+   wrapping tag field rather than rows: you scan it once before you deploy and
+   again when you are running for the edge of the map. */
+.block.exits { border-color: var(--key-line); }
+.block.exits h2 { color: var(--key); border-bottom-color: var(--key-line); }
+.block > ul.tags { padding: 8px 12px; }
+ul.tags {
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+ul.tags .tag {
+  font-size: 11px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--bg);
+}
+/* Shared exits work for both sides; nothing to warn about, just dimmer. */
+ul.tags .tag.shared { color: var(--dim); }
+/* An exit a task names is an instruction, so it gets the accent and the only
+   solid fill in the field — findable at a glance mid-raid. */
+ul.tags .tag.required {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+ul.tags .tag .mark { color: var(--key); margin-left: 3px; }
+
+.block.exits .bosses {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: var(--dim);
+}
+.block.exits .bosses span + span::before { content: " \00B7  "; color: var(--line); }
+.block.exits .bosses b { color: var(--text-bright); font-weight: 400; }
+
 ul.check, ul.plain, ul.do { list-style: none; margin: 0; padding: 0; }
 
 ul.check li + li,
@@ -674,6 +730,9 @@ ul.plain li {
 }
 /* Middot separators, so the meta line reads as one unit. */
 .task .meta span + span::before { content: "\00B7 "; color: var(--line); }
+/* Banked objectives read as progress, so they borrow the loot green rather
+   than the dim grey the rest of the meta line uses. */
+.task .meta .done { color: var(--loot-text); }
 
 .tl { margin: 2px 0; font-size: 12px; }
 .tl b { font-size: 10px; font-weight: 700; margin-right: 5px; }

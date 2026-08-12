@@ -36,11 +36,20 @@ brief: what to **carry in**, which **keys** you need, what to **bring out**, and
 what to actually **do**.
 
 - **Per-map packing lists** — CARRY IN, KEYS, BRING OUT and DO, built only from
-  the tasks you can actually take right now.
+  the tasks you can actually take right now, and only from the parts of them
+  you have **not already done** — a counted objective reads "Bandage x3 (2/5
+  done)", and a finished one takes its key off the list with it.
 - **Tickable checklist** — ticks are saved per map in your browser and survive
   reloads.
 - **"Run next" ranking** — a deterministic score (finishable-task XP, discounted
   partial XP, a Kappa bonus, a per-key penalty), with the breakdown on screen.
+- **Extracts, per map** — every exit a PMC can use, switch-gated ones marked
+  and any exit a task names pulled to the front. Plus raid length, lobby size
+  and boss spawn chances.
+- **Trader standing estimated from your completed tasks** — the tasks you have
+  handed in say how much reputation they paid, so the panel can suggest each
+  trader's loyalty level instead of making you type ten of them. Offered
+  behind a button, never applied on its own.
 - **Availability that matches TarkovTracker**, including the community
   [data overlay](#the-data-overlay--why-raw-tarkovdev-is-not-enough) the tracker
   itself applies — so the list doesn't show quests you can't take.
@@ -129,6 +138,21 @@ level next. Your answers are kept in `/data/standing.json` and survive restarts
 and updates; **Reset** goes back to the `trader_levels` in the Configuration
 tab, which are now just the starting values.
 
+Since 1.7.0 the panel **estimates the levels for you**. Tasks say how much
+reputation they pay on hand-in, so the ones TarkovTracker records as complete
+add up to a reputation figure, and each trader's own loyalty tiers turn that
+into a level — shown beside each trader, with **Use estimate** to apply the
+whole roster at once. It is a suggestion rather than an answer, for three
+reasons worth knowing before you trust it:
+
+- loyalty also needs **roubles spent** with the trader (`requiredCommerce`),
+  which neither API reports, so the estimate can read one tier high;
+- **EOD and Unheard** editions start above zero reputation, which it cannot see;
+- **Fence is excluded** — their standing comes from scav karma, not tasks.
+
+Applying it writes ordinary overrides, so you can correct any trader afterwards
+by clicking a pip, and **Reset** still clears the lot.
+
 **Set these to your real levels.** Since 1.4.0 the overlay supplies a loyalty
 requirement for roughly half of all tasks, so these values genuinely change what
 you see — leaving everything at the default `1` hides every task gated behind
@@ -214,6 +238,23 @@ id) and untranslated (a task's `name` is literally `"657315... name"`). The
 add-on fetches items/maps/traders alongside tasks, joins the ids, and resolves
 text via the sibling `<path>_en` files, using the same `lang[value] ?? value`
 rule the tarkov.dev site uses.
+
+### What comes from where
+
+Both upstreams send more than the brief used to read, and 1.7.0 spends the
+bytes that were already being downloaded:
+
+| Feature | Source | Cost |
+|---|---|---|
+| Objectives already done, partial counts | `taskObjectivesProgress`, in the same `/progress` response as the task records | none — same request |
+| Extracts, bosses, raid length, lobby size | the `maps` dataset, already fetched to resolve map names | none — same request |
+| Trader standing estimate | `finishRewards.traderStanding` in the `tasks` dataset | none — same request |
+
+Objective ids are shared between the two APIs — TarkovTracker records progress
+against the same `objectives[].id` tarkov.dev publishes — which is what makes
+the join a dictionary lookup rather than a heuristic. Extract names are matched
+the same way: a task's `exitName` and a map's extract name are the same
+translation key resolved by two different language files.
 
 ### The data overlay — why raw tarkov.dev is not enough
 
@@ -322,11 +363,13 @@ curl -s http://homeassistant.local:8099/ -H 'X-Ingress-Path: /api/hassio_ingress
 | `GET /` | The page. Accepts `?map=` and `?kappa_only=`. |
 | `GET /api/brief` | Full brief as JSON. Optional `?map=` and `?kappa_only=`. |
 | `POST /api/refresh` | Force-refresh both upstreams and bust the task cache. |
+| `POST /api/trader-standing` | Set standing. Body `{"levels": {...}}`, `{"reputations": {...}}`, `{"apply_derived": true}` to take the estimate, or `{"reset": true}`. |
 | `GET /health` | Liveness. Makes no upstream calls. |
 
 ### Tests
 
-Two checks, both aimed at the ways this app can rot between patches:
+Aimed at the ways this app can rot between patches, plus the arithmetic that
+decides what you see:
 
 ```bash
 pip install graphql-core
@@ -339,10 +382,19 @@ python3 tests/test_query_validates.py --update    # refresh the vendored SDL
 # Every objective type in the live task dump is explicitly classified as
 # carry / loot / non-raid. Fails if a patch adds a type we'd silently mishandle.
 python3 tests/test_objective_coverage.py
+
+# TarkovTracker's availability rules: branches, "active" requirements,
+# retired prerequisites, trader-unlock gates. Offline.
+python3 tests/test_availability.py
+
+# Objective-level progress, the extract panel and the standing estimate:
+# what gets filtered, what gets counted, and what is deliberately excluded
+# (scav exfils, Fence's reputation). Offline.
+python3 tests/test_progress_and_standing.py
 ```
 
-The second one caught two real types (`dialogue`, `globalVariable`) that would
-otherwise have shown up as fake "things to do" on every map.
+The objective-type one caught two real types (`dialogue`, `globalVariable`)
+that would otherwise have shown up as fake "things to do" on every map.
 
 ### Building the image yourself
 
@@ -391,7 +443,7 @@ ordinary code push can't silently overwrite a released tag.
 .
 ├── repository.yaml                 # marks this as an HA add-on repository
 ├── .github/workflows/builder.yaml  # builds + pushes both arches to GHCR
-├── tests/test_query_validates.py   # offline GraphQL query validation
+├── tests/                          # offline checks + one live schema probe
 └── tarkov_raidbrief/               # the add-on itself
     ├── config.yaml  Dockerfile  build.yaml  run.sh  requirements.txt
     ├── DOCS.md                     # rendered as the add-on's Documentation tab
@@ -403,7 +455,8 @@ ordinary code push can't silently overwrite a released tag.
         ├── tarkovdev.py  # GraphQL client (fallback), composable query, disk cache
         ├── tracker.py    # TarkovTracker client, ETag/304, rate limiting
         ├── overlay.py    # tarkov-data-overlay: the corrections tarkov.dev lacks
-        ├── brief.py      # availability + carry/loot/do classification
+        ├── brief.py      # availability + carry/loot/do classification, extracts
+        ├── standing.py   # trader levels: stored overrides + the task-derived estimate
         ├── models.py     # dataclasses + settings
         ├── recommend.py  # deterministic "Run next" scoring
         ├── gemini.py     # optional AI route advice
